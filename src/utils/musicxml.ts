@@ -18,7 +18,12 @@ export function generateMusicXML(formattedText: string, title = 'Lead Sheet'): s
 
   const lines = formattedText.split('\n');
   for (const line of lines) {
-    const rawBars = line.split('|').map((b) => b.trim()).filter(Boolean);
+    const rawBars = line.split('|').map((b) => b.trim()).filter((b, idx, arr) => {
+      // Ignore leading/trailing empty strings created by outer bar lines
+      if (idx === 0 && b === '') return false;
+      if (idx === arr.length - 1 && b === '') return false;
+      return true;
+    });
     for (const barText of rawBars) {
       const chords = barText.split(/\s+/).filter(Boolean).map((symbol) => ({ symbol }));
       measures.push({
@@ -55,7 +60,7 @@ export function generateMusicXML(formattedText: string, title = 'Lead Sheet'): s
     // Add attributes in first measure
     if (idx === 0) {
       xmlBody += `      <attributes>
-        <divisions>4</divisions>
+        <divisions>12</divisions>
         <key>
           <fifths>0</fifths>
         </key>
@@ -71,16 +76,23 @@ export function generateMusicXML(formattedText: string, title = 'Lead Sheet'): s
     }
 
     // Add harmony elements for each chord in the measure
-    m.chords.forEach((chord) => {
-      xmlBody += parseHarmonyXml(chord.symbol);
-    });
+    const totalDuration = 48; // 12 divisions per beat * 4 beats
+    const numChords = m.chords.length;
+    const baseDuration = Math.floor(totalDuration / numChords);
+    let remainingDuration = totalDuration;
 
-    // Whole rest note to represent the bar structure
-    xmlBody += `      <note>
+    m.chords.forEach((chord, i) => {
+      xmlBody += parseHarmonyXml(chord.symbol);
+
+      const duration = (i === numChords - 1) ? remainingDuration : baseDuration;
+      remainingDuration -= duration;
+
+      // Add a rest note to consume the duration for this chord
+      xmlBody += `      <note>
         <rest/>
-        <duration>16</duration>
-        <type>whole</type>
+        <duration>${duration}</duration>
       </note>\n`;
+    });
 
     xmlBody += `    </measure>\n`;
   });
@@ -99,31 +111,54 @@ function parseHarmonyXml(symbol: string): string {
       </harmony>\n`;
   }
 
-  // Extract root and alteration if standard note (e.g. F, B♭, C♯, G/B)
-  const noteMatch = symbol.match(/^([A-G])([♭♯b#]?)(.*)$/);
+  let chordStr = symbol;
+  let bassStr = '';
+  if (symbol.includes('/')) {
+    const parts = symbol.split('/');
+    chordStr = parts[0];
+    bassStr = parts[1];
+  }
+
+  // Extract root and alteration if standard note (e.g. F, B♭, C♯)
+  const noteMatch = chordStr.match(/^([A-G])([♭♯b#]?)(.*)$/);
 
   if (noteMatch) {
     const step = noteMatch[1];
     const acc = noteMatch[2];
 
     let alterTag = '';
-    if (acc === '♭' || acc === 'b') alterTag = '<root-alter>-1</root-alter>';
-    if (acc === '♯' || acc === '#') alterTag = '<root-alter>1</root-alter>';
+    if (acc === '♭' || acc === 'b') alterTag = '\n          <root-alter>-1</root-alter>';
+    if (acc === '♯' || acc === '#') alterTag = '\n          <root-alter>1</root-alter>';
+
+    let bassTag = '';
+    if (bassStr) {
+      const bassMatch = bassStr.match(/^([A-G])([♭♯b#]?)/);
+      if (bassMatch) {
+        const bStep = bassMatch[1];
+        const bAcc = bassMatch[2];
+        let bAlterTag = '';
+        if (bAcc === '♭' || bAcc === 'b') bAlterTag = '\n          <bass-alter>-1</bass-alter>';
+        if (bAcc === '♯' || bAcc === '#') bAlterTag = '\n          <bass-alter>1</bass-alter>';
+        bassTag = `
+        <bass>
+          <bass-step>${bStep}</bass-step>${bAlterTag}
+        </bass>`;
+      }
+    }
 
     return `      <harmony>
         <root>
-          <root-step>${step}</root-step>
-          ${alterTag}
+          <root-step>${step}</root-step>${alterTag}
         </root>
-        <kind text="${escapeXml(symbol)}">other</kind>
+        <kind text="${escapeXml(symbol)}">other</kind>${bassTag}
       </harmony>\n`;
   }
 
   // Roman numerals (Ⅳm7, ♭ⅢΔ7) or degree chords
   return `      <harmony>
-    <harmony-text>${escapeXml(symbol)}</harmony-text>
-    <kind text="${escapeXml(symbol)}">other</kind>
-  </harmony>\n`;
+        <function>${escapeXml(symbol)}</function>
+        <kind text="${escapeXml(symbol)}">other</kind>
+      </harmony>\n`;
 }
 
 function escapeXml(unsafe: string): string {
