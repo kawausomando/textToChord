@@ -171,7 +171,7 @@ export function App() {
 
       {/* Footer */}
       <footer style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
-        TextToChord Converter • Antigravity Pair-Programming
+        @kawausomando
       </footer>
 
       {/* Settings Modal */}
