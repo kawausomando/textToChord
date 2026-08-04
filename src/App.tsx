@@ -6,7 +6,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { convertRoughText, DEFAULT_OPTIONS } from './utils/converter';
 import type { ConverterOptions } from './utils/converter';
 import { audioPlayer } from './utils/audio';
-import { Copy, Check, Sparkles, FileText } from 'lucide-react';
+import { downloadMusicXML } from './utils/musicxml';
+import { Copy, Check, Sparkles, FileText, Download } from 'lucide-react';
 
 export function App() {
   const [inputText, setInputText] = useState<string>('4m7, AM7, 7m7-5, Bbaug, 5m7(11)\n4.5/4, 3.6');
@@ -126,18 +127,28 @@ export function App() {
 
           {/* Right Column: Formatted Output */}
           <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
               <label style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <Sparkles size={16} color="var(--accent-emerald)" /> 変換結果（整形済みテキスト）
               </label>
-              <button
-                onClick={handleCopy}
-                className={copied ? 'btn btn-accent' : 'btn btn-secondary'}
-                style={{ fontSize: '0.8rem', padding: '0.3rem 0.7rem' }}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? 'コピー完了！' : 'テキストをコピー'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  onClick={() => downloadMusicXML(formattedText)}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.7rem' }}
+                  title="Sibelius / Dorico / MuseScore 用 MusicXML (.musicxml) ファイル出力"
+                >
+                  <Download size={14} /> MusicXML出力
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className={copied ? 'btn btn-accent' : 'btn btn-secondary'}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.7rem' }}
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? 'コピー完了！' : 'テキストをコピー'}
+                </button>
+              </div>
             </div>
 
             <div
