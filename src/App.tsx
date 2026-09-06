@@ -6,10 +6,12 @@ import { SettingsModal } from './components/SettingsModal';
 import { MasterChartSpreadView } from './components/MasterChartSpreadView';
 import { KickStepSequencer } from './components/KickStepSequencer';
 import { NaturalLanguageBar } from './components/NaturalLanguageBar';
+import { ApiKeyModal } from './components/ApiKeyModal';
 import { convertRoughText, DEFAULT_OPTIONS } from './utils/converter';
 import type { ConverterOptions } from './utils/converter';
 import { parseMasterChartText, updateMeasureKickInDsl } from './utils/chartParser';
 import { processNaturalLanguageCommand } from './utils/aiCommandProcessor';
+import { executeLlmChartCommand } from './utils/llmService';
 import type { MasterChart } from './types/chart';
 import { audioPlayer } from './utils/audio';
 import { downloadMusicXML } from './utils/musicxml';
@@ -54,6 +56,20 @@ export function App() {
   const [selectedMeasureId, setSelectedMeasureId] = useState<string | null>(null);
   const [chartCopied, setChartCopied] = useState(false);
   const [nlFeedback, setNlFeedback] = useState<string | null>(null);
+
+  // LLM State
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('textToChord_gemini_api_key') || '');
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
+  const [isLlmLoading, setIsLlmLoading] = useState<boolean>(false);
+
+  const handleSaveApiKey = (newKey: string) => {
+    setApiKey(newKey);
+    if (newKey) {
+      localStorage.setItem('textToChord_gemini_api_key', newKey);
+    } else {
+      localStorage.removeItem('textToChord_gemini_api_key');
+    }
+  };
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dslTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -153,12 +169,27 @@ export function App() {
     setChartDsl(nextDsl);
   };
 
-  // Natural Language Command Execution
-  const handleExecuteNlCommand = (instruction: string) => {
-    const result = processNaturalLanguageCommand(chartDsl, instruction);
-    setNlFeedback(result.explanation);
-    if (result.success) {
-      setChartDsl(result.newDsl);
+  // Natural Language Command Execution (LLM with local fallback)
+  const handleExecuteNlCommand = async (instruction: string) => {
+    if (apiKey.trim()) {
+      setIsLlmLoading(true);
+      try {
+        const result = await executeLlmChartCommand(chartDsl, instruction, apiKey.trim());
+        setNlFeedback(result.explanation);
+        if (result.success) {
+          setChartDsl(result.newDsl);
+        }
+      } finally {
+        setIsLlmLoading(false);
+      }
+    } else {
+      // Local zero-latency fallback engine
+      const result = processNaturalLanguageCommand(chartDsl, instruction);
+      const hint = ' (⚡ローカル処理。より自由・複雑な指示は右上のGemini API設定をご利用ください)';
+      setNlFeedback(result.explanation + (result.success ? hint : ''));
+      if (result.success) {
+        setChartDsl(result.newDsl);
+      }
     }
   };
 
@@ -282,6 +313,9 @@ export function App() {
                 <NaturalLanguageBar
                   onExecuteCommand={handleExecuteNlCommand}
                   lastFeedback={nlFeedback}
+                  hasApiKey={Boolean(apiKey.trim())}
+                  onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
+                  isLoading={isLlmLoading}
                 />
 
                 <MasterChartSpreadView
@@ -414,6 +448,14 @@ export function App() {
         onClose={() => setIsSettingsOpen(false)}
         options={options}
         setOptions={setOptions}
+      />
+
+      {/* Gemini API Key Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+        apiKey={apiKey}
+        onSaveApiKey={handleSaveApiKey}
       />
     </div>
   );
