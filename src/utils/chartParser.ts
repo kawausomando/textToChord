@@ -213,12 +213,24 @@ export function parseMasterChartText(input: string, chartTitle = 'Lead Sheet'): 
       const tiesMerged = new Array(16).fill(false);
 
       if (simile === 'none') {
+        // 1. Extract [kick: ...] before splitting words by whitespace
+        const kickMatch = content.match(/\[kick:\s*[^\]]+\]/i);
+        if (kickMatch) {
+          const explicitKickTag = kickMatch[0];
+          content = content.replace(explicitKickTag, '').trim();
+          const parsed = parseKickDsl(explicitKickTag);
+          for (let k = 0; k < 16; k++) {
+            if (parsed.kicks[k]) kicksMerged[k] = true;
+            if (parsed.ties[k]) tiesMerged[k] = true;
+          }
+        }
+
         const words = content.split(/\s+/).filter(Boolean);
         words.forEach((w) => {
           let kickDsl: string | undefined = undefined;
           let chordSym = w;
 
-          const parenKick = w.match(/\((>?[0-9a-z~]+)\)/i);
+          const parenKick = w.match(/\((>?[0-9a-z~&+.!]+)\)/i);
           if (parenKick) {
             kickDsl = parenKick[1];
             chordSym = w.replace(parenKick[0], '');
@@ -331,7 +343,7 @@ export function updateMeasureKickInDsl(
         let barContent = line.substring(left.index + left.delim.length, right.index);
 
         // Remove existing kick tags or paren kicks
-        barContent = barContent.replace(/\[kick:[^\]]+\]/g, '').replace(/\(>?[0-9a-z~]+\)/gi, '').trim();
+        barContent = barContent.replace(/\[kick:[^\]]+\]/g, '').replace(/\(>?[0-9a-z~&+.!]+\)/gi, '').trim();
 
         // Append new kick tag if present
         if (kickTag) {
@@ -341,6 +353,76 @@ export function updateMeasureKickInDsl(
         const newLine =
           line.substring(0, left.index + left.delim.length) +
           (barContent ? ` ${barContent} ` : ' ') +
+          line.substring(right.index);
+
+        lines[l] = newLine;
+        return lines.join('\n');
+      }
+      currentMeasureCounter++;
+    }
+  }
+
+  return dslText;
+}
+
+/**
+ * Appends an anticipation (push / 食い) kick note to a specific measure in the DSL.
+ * If chordName is provided (e.g. 'B♭7'), it appends or updates 'B♭7(>4&~)' in the target measure.
+ */
+export function applyAnticipationToMeasure(
+  dslText: string,
+  targetMeasureNum: number,
+  chordName?: string,
+  kickTag = '>4&~'
+): string {
+  const lines = dslText.split('\n');
+  let currentMeasureCounter = 1;
+
+  for (let l = 0; l < lines.length; l++) {
+    const line = lines[l];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('[') && !trimmed.startsWith('[kick:') && !/^\d+\.?$/.test(trimmed.slice(1, -1))) {
+      continue;
+    }
+
+    const barlineRegex = /(:\|:|:\||\|:|\|\||\|\.|\|)/g;
+    const delims: BarDelim[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = barlineRegex.exec(line)) !== null) {
+      delims.push({ delim: m[0], index: m.index });
+    }
+
+    if (delims.length < 2) continue;
+
+    for (let i = 0; i < delims.length - 1; i++) {
+      if (currentMeasureCounter === targetMeasureNum) {
+        const left = delims[i];
+        const right = delims[i + 1];
+        let barContent = line.substring(left.index + left.delim.length, right.index);
+
+        // Remove existing kick tags or paren kicks
+        barContent = barContent.replace(/\[kick:[^\]]+\]/g, '').replace(/\(>?[0-9a-z~&+.!]+\)/gi, '').trim();
+
+        const kickNotation = kickTag.startsWith('>') ? `(${kickTag})` : `(>${kickTag})`;
+        let newContent = '';
+
+        if (chordName) {
+          const words = barContent.split(/\s+/).filter(Boolean);
+          if (words.length > 0 && words[words.length - 1] === chordName) {
+            words[words.length - 1] = `${chordName}${kickNotation}`;
+            newContent = words.join(' ');
+          } else {
+            const chordWithKick = `${chordName}${kickNotation}`;
+            newContent = barContent ? `${barContent} ${chordWithKick}` : chordWithKick;
+          }
+        } else {
+          newContent = barContent ? `${barContent} ${kickNotation}` : kickNotation;
+        }
+
+        const newLine =
+          line.substring(0, left.index + left.delim.length) +
+          (newContent ? ` ${newContent} ` : ' ') +
           line.substring(right.index);
 
         lines[l] = newLine;

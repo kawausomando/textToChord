@@ -1,10 +1,28 @@
-import { updateMeasureKickInDsl, parseMasterChartText } from './chartParser';
+import { updateMeasureKickInDsl, parseMasterChartText, applyAnticipationToMeasure } from './chartParser';
 import { convertChordSymbol } from './converter';
 
 export interface CommandResult {
   success: boolean;
   newDsl: string;
   explanation: string;
+}
+
+/**
+ * Safely extracts a chord symbol from natural language prompt,
+ * handling Unicode flats/sharps (♭/♯/b/#) and ignoring measure markers like M1, M4.
+ */
+function extractChordFromText(text: string): string | null {
+  const chordRegex = /(?:^|[\sの第目節])([A-Ga-g][b#♭♯]?(?:maj|min|m|M|Δ|aug|dim|sus|add|[0-9()\-♭♯b#Δø/]*))/g;
+  let m: RegExpExecArray | null;
+  while ((m = chordRegex.exec(text)) !== null) {
+    const candidate = m[1];
+    if (/^M\d+$/i.test(candidate)) continue;
+    if (/^(?:in|half|to|coda)$/i.test(candidate)) continue;
+    if (/^[ab]$/.test(candidate) || text.slice(m.index + m[0].length).startsWith('メロ')) continue;
+    if (candidate.length === 1 && !/[A-G]/.test(candidate)) continue;
+    return convertChordSymbol(candidate);
+  }
+  return null;
 }
 
 const SEMITONE_MAP_UP: Record<string, string> = {
@@ -116,41 +134,74 @@ export function processNaturalLanguageCommand(currentDsl: string, instruction: s
     }
   }
 
-  // 3. Check Measure-specific commands (e.g. 3小節目, M8, 8小節)
+  // 3. Anticipation / Push (食わせる / プッシュ / アンティシペーション) commands
+  // Musically, "N小節目のコードを食わせて" means anticipating the chord into measure N-1,
+  // appending a note at beat 4 8th off-beat (>4&~) tied over the barline into measure N.
+  const isClear = /消して|クリア|削除|無くして|リセット/i.test(text);
+  if (/食わせて|食わせ|食い|プッシュ|アンティシペーション|anticipat/i.test(text) && !isClear) {
+    const is16th = /16分|4a/i.test(text);
+    const kickTag = is16th ? '>4a~' : '>4&~';
+
+    const extractedChord = extractChordFromText(text);
+
+    // Check if an explicit beat is specified (e.g. 3小節目の4拍目裏)
+    const explicitBeatMatch = text.match(/(?:第\s*)?(\d+)\s*小節目?(?:の)?\s*(?:[1-4]|4)拍目/i);
+    let targetMeasureNum: number | null = explicitBeatMatch ? parseInt(explicitBeatMatch[1], 10) : null;
+    let destMeasureNum: number | null = null;
+
+    // Check general measure number
+    const generalMeasureMatch = text.match(/(?:第\s*)?(\d+)\s*(?:小節(?:目)?|小節)/i) || text.match(/M\s*(\d+)/i);
+    if (generalMeasureMatch) {
+      const mNum = parseInt(generalMeasureMatch[1], 10);
+      if (!targetMeasureNum) {
+        // "N小節目の〇〇を食わせて" -> N is destination measure, target measure is N - 1
+        destMeasureNum = mNum;
+        targetMeasureNum = mNum - 1;
+      } else if (targetMeasureNum !== mNum) {
+        destMeasureNum = mNum;
+      }
+    }
+
+    if (targetMeasureNum !== null) {
+      if (targetMeasureNum < 1) {
+        return {
+          success: false,
+          newDsl: currentDsl,
+          explanation: '⚠️ 1小節目より前に小節がないため、前小節からの食い（アンティシペーション）は設定できません。',
+        };
+      }
+
+      let chordToUse = extractedChord;
+      if (!chordToUse && destMeasureNum) {
+        // Look up chord of destMeasure in current chart
+        const chart = parseMasterChartText(currentDsl);
+        const destMeasure = chart.measures.find((m) => m.number === destMeasureNum);
+        if (destMeasure && destMeasure.chords.length > 0) {
+          chordToUse = destMeasure.chords[0].symbol;
+        }
+      }
+
+      const newDsl = applyAnticipationToMeasure(currentDsl, targetMeasureNum, chordToUse || undefined, kickTag);
+      const chordLabel = chordToUse ? `「${chordToUse}(${kickTag})」` : `「${kickTag}」`;
+      const beatName = is16th ? '4拍目16分裏' : '4拍目8分裏';
+      const destInfo = destMeasureNum ? `${destMeasureNum}小節目の${chordToUse || 'コード'}を食わせるため、` : '';
+      const targetLabel = destMeasureNum ? `前小節（小節 ${targetMeasureNum}）` : `小節 ${targetMeasureNum}`;
+
+      return {
+        success: true,
+        newDsl,
+        explanation: `✅ ${destInfo}${targetLabel}の${beatName}に${chordLabel}（タイ付き）を追記しました。`,
+      };
+    }
+  }
+
+  // 4. Check Measure-specific commands (e.g. 3小節目, M8, 8小節)
   const measureMatch = text.match(/(?:第\s*)?(\d+)\s*(?:小節(?:目)?|小節)/i) || text.match(/M\s*(\d+)/i);
 
   if (measureMatch) {
     const measureNum = parseInt(measureMatch[1], 10);
 
-    // 3a. Kick / Comping commands
-    if (/16分裏|裏食い|食わせ|食い|4a|プッシュ|シンコペ/i.test(text)) {
-      const kicks = new Array(16).fill(false);
-      const ties = new Array(16).fill(false);
-      kicks[15] = true;
-      ties[15] = true; // 4a~ (16th push with tie)
-
-      const newDsl = updateMeasureKickInDsl(currentDsl, measureNum, kicks, ties);
-      return {
-        success: true,
-        newDsl,
-        explanation: `✅ 小節 ${measureNum} に「16分裏食いキメ (>4a~)」を設定しました。`,
-      };
-    }
-
-    if (/8分(?:裏)?食い|4&/i.test(text)) {
-      const kicks = new Array(16).fill(false);
-      const ties = new Array(16).fill(false);
-      kicks[14] = true;
-      ties[14] = true; // 4&~ (8th push with tie)
-
-      const newDsl = updateMeasureKickInDsl(currentDsl, measureNum, kicks, ties);
-      return {
-        success: true,
-        newDsl,
-        explanation: `✅ 小節 ${measureNum} に「8分裏食いキメ (4&~)」を設定しました。`,
-      };
-    }
-
+    // 4a. Kick / Comping commands (Hit / Clear)
     if (/頭キメ|頭打ち|hit|アタック|1拍目キメ/i.test(text)) {
       const kicks = new Array(16).fill(false);
       const ties = new Array(16).fill(false);
@@ -164,7 +215,7 @@ export function processNaturalLanguageCommand(currentDsl: string, instruction: s
       };
     }
 
-    if (/キメ(?:を)?(?:消して|クリア|削除|無くして|リセット)/i.test(text)) {
+    if (/(?:キメ|食い|プッシュ|アンティシペーション)(?:を)?(?:消して|クリア|削除|無くして|リセット)/i.test(text)) {
       const kicks = new Array(16).fill(false);
       const ties = new Array(16).fill(false);
 
@@ -265,7 +316,7 @@ export function processNaturalLanguageCommand(currentDsl: string, instruction: s
           if (counter + innerParts.length > measureNum) {
             const targetIdx = measureNum - counter + 1;
             const oldContent = parts[targetIdx];
-            const existingKick = oldContent.match(/\[kick:[^\]]+\]|\(>?[0-9a-z~]+\)/i);
+            const existingKick = oldContent.match(/\[kick:[^\]]+\]|\(>?[0-9a-z~&+.!]+\)/i);
             const kickPart = existingKick ? ` ${existingKick[0]}` : '';
             const voltaPrefix = oldContent.match(/^(\s*\d+\.\s*)/);
             const voltaPart = voltaPrefix ? voltaPrefix[1] : ' ';
