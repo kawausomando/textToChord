@@ -8,10 +8,10 @@ interface MasterChartSpreadViewProps {
 }
 
 // 5-line staff constants
-const STAFF_Y_START = 38;
+const STAFF_Y_START = 54;
 const LINE_SPACING = 9;
 const STAFF_HEIGHT = LINE_SPACING * 4; // 36px
-const SYSTEM_HEIGHT = 118;
+const SYSTEM_HEIGHT = 132;
 const SVG_WIDTH = 880;
 const MEASURES_PER_SYSTEM = 4;
 const BAR_WIDTH = SVG_WIDTH / MEASURES_PER_SYSTEM; // 220px per bar
@@ -153,34 +153,36 @@ function renderSystem(
             {/* Clickable Hover / Select Background */}
             <rect
               x={barX + 2}
-              y={yOffset + 6}
+              y={yOffset + 2}
               width={BAR_WIDTH - 4}
-              height={SYSTEM_HEIGHT - 12}
+              height={SYSTEM_HEIGHT - 6}
               fill={isSelected ? 'rgba(6, 182, 212, 0.14)' : 'transparent'}
               stroke={isSelected ? '#06b6d4' : 'transparent'}
               strokeWidth="2"
               rx="6"
             />
 
-            {/* Bar Number Indicator */}
-            <text
-              x={barX + 6}
-              y={yOffset + 18}
-              fill="#64748b"
-              fontSize="10"
-              fontFamily="var(--font-mono)"
-            >
-              {m.number}
-            </text>
+            {/* Bar Number Indicator (Suppressed on measures with rehearsal mark, volta, or segno to adhere to Gould/Dorico engraving rules and avoid text collisions) */}
+            {!m.rehearsalMark && !m.volta && !m.segno && (
+              <text
+                x={barX + 6}
+                y={yOffset + 18}
+                fill="#64748b"
+                fontSize="10"
+                fontFamily="var(--font-mono)"
+              >
+                {m.number}
+              </text>
+            )}
 
-            {/* Rehearsal Mark (Boxed System Text) */}
+            {/* Rehearsal Mark (Boxed System Text) - Placed in dedicated Top Tier (y: 3..23) */}
             {m.rehearsalMark && (
               <g>
                 <rect
                   x={barX + 6}
-                  y={yOffset + 2}
+                  y={yOffset + 3}
                   width={Math.max(34, m.rehearsalMark.length * 9 + 16)}
-                  height="22"
+                  height="20"
                   rx="4"
                   fill="#0f172a"
                   stroke="#06b6d4"
@@ -190,7 +192,7 @@ function renderSystem(
                   x={barX + 14}
                   y={yOffset + 17}
                   fill="#ffffff"
-                  fontSize="12"
+                  fontSize="11"
                   fontWeight="800"
                   fontFamily="var(--font-sans)"
                 >
@@ -199,53 +201,66 @@ function renderSystem(
               </g>
             )}
 
-            {/* Segno / Coda / To Coda Navigation Texts */}
-            {m.segno && (
-              <text x={barX + 60} y={yOffset + 18} fill="#f59e0b" fontSize="18" fontWeight="bold">
-                𝄋
-              </text>
-            )}
+            {/* Segno / Coda / To Coda Navigation Texts (Offset dynamically if rehearsal mark or volta is present) */}
+            {m.segno && (() => {
+              const markWidth = m.rehearsalMark ? Math.max(34, m.rehearsalMark.length * 9 + 16) : 0;
+              const startX = m.rehearsalMark ? barX + 6 + markWidth + 6 : barX;
+              const segnoX = m.rehearsalMark
+                ? barX + 6 + markWidth + 8
+                : m.volta
+                ? startX + 24
+                : barX + 10;
+              return (
+                <text x={segnoX} y={yOffset + 19} fill="#f59e0b" fontSize="18" fontWeight="bold">
+                  𝄋
+                </text>
+              );
+            })()}
             {m.toCoda && (
-              <text x={barX + BAR_WIDTH - 80} y={yOffset + 18} fill="#f43f5e" fontSize="11" fontWeight="bold">
+              <text x={barX + BAR_WIDTH - 80} y={yOffset + 15} fill="#f43f5e" fontSize="11" fontWeight="bold">
                 To Coda 𝄌
               </text>
             )}
             {m.dsAlCoda && (
-              <text x={barX + BAR_WIDTH - 85} y={yOffset + 18} fill="#38bdf8" fontSize="11" fontWeight="bold">
+              <text x={barX + BAR_WIDTH - 85} y={yOffset + 15} fill="#38bdf8" fontSize="11" fontWeight="bold">
                 D.S. al Coda
               </text>
             )}
 
-            {/* Volta (1., 2. Endings) */}
-            {m.volta && (
-              <g>
-                <line
-                  x1={barX}
-                  y1={yOffset + 22}
-                  x2={barX + BAR_WIDTH}
-                  y2={yOffset + 22}
-                  stroke="#f59e0b"
-                  strokeWidth="1.5"
-                />
-                <line
-                  x1={barX}
-                  y1={yOffset + 22}
-                  x2={barX}
-                  y2={yOffset + 32}
-                  stroke="#f59e0b"
-                  strokeWidth="1.5"
-                />
-                <text x={barX + 6} y={yOffset + 19} fill="#f59e0b" fontSize="11" fontWeight="bold">
-                  {m.volta}.
-                </text>
-              </g>
-            )}
+            {/* Volta (1., 2. Endings) - Clear of chords and rehearsal marks */}
+            {m.volta && (() => {
+              const markWidth = m.rehearsalMark ? Math.max(34, m.rehearsalMark.length * 9 + 16) : 0;
+              const startX = m.rehearsalMark ? barX + 6 + markWidth + 6 : barX;
+              return (
+                <g>
+                  <line
+                    x1={startX}
+                    y1={yOffset + 18}
+                    x2={barX + BAR_WIDTH}
+                    y2={yOffset + 18}
+                    stroke="#f59e0b"
+                    strokeWidth="1.5"
+                  />
+                  <line
+                    x1={startX}
+                    y1={yOffset + 18}
+                    x2={startX}
+                    y2={yOffset + 28}
+                    stroke="#f59e0b"
+                    strokeWidth="1.5"
+                  />
+                  <text x={startX + 6} y={yOffset + 15} fill="#f59e0b" fontSize="11" fontWeight="bold">
+                    {m.volta}.
+                  </text>
+                </g>
+              );
+            })()}
 
             {/* Band Instructions (e.g. -> half, (vocal in)) */}
             {m.bandText && (
               <text
                 x={barX + 8}
-                y={staffTop + STAFF_HEIGHT + 22}
+                y={staffTop + STAFF_HEIGHT + 20}
                 fill="#94a3b8"
                 fontSize="11"
                 fontStyle="italic"
@@ -285,7 +300,7 @@ function renderSystem(
                     <text
                       key={cIdx}
                       x={chordX}
-                      y={staffTop - 6}
+                      y={staffTop - 8}
                       fill="#38bdf8"
                       fontSize="15"
                       fontWeight="700"
