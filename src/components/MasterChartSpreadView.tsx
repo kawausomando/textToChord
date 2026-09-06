@@ -259,7 +259,28 @@ function renderSystem(
             {m.chords.length > 0 && (
               <g>
                 {m.chords.map((chord, cIdx) => {
-                  const chordX = barX + 16 + (cIdx * (BAR_WIDTH - 32)) / Math.max(1, m.chords.length);
+                  // Defensive cleanup: ensure raw kick DSL never leaks into chord label display
+                  const cleanSymbol = chord.symbol
+                    .replace(/\[kick:[^\]]+\]/g, '')
+                    .replace(/\(>?[0-9a-z~&+.!]+\)/gi, '')
+                    .trim();
+
+                  if (!cleanSymbol) return null;
+
+                  let chordX = barX + 16 + (cIdx * (BAR_WIDTH - 32)) / Math.max(1, m.chords.length);
+
+                  // If chord is an anticipation kick (e.g. at beat 4& [step 14] or beat 4a [step 15]),
+                  // align it directly above the kick slash notehead near the right barline!
+                  if (chord.kickDsl || (cIdx > 0 && m.kicks && (m.kicks[14] || m.kicks[15]))) {
+                    const kickStep = m.kicks ? (m.kicks[15] ? 15 : m.kicks[14] ? 14 : -1) : -1;
+                    if (kickStep >= 0) {
+                      const stepX = barX + 14 + (kickStep * (BAR_WIDTH - 28)) / 16;
+                      chordX = Math.max(barX + 70, stepX - 12);
+                    } else {
+                      chordX = barX + BAR_WIDTH - 60;
+                    }
+                  }
+
                   return (
                     <text
                       key={cIdx}
@@ -270,14 +291,14 @@ function renderSystem(
                       fontWeight="700"
                       fontFamily="var(--font-sans)"
                     >
-                      {chord.symbol}
+                      {cleanSymbol}
                     </text>
                   );
                 })}
               </g>
             )}
 
-            {/* Simile (%, %2%, %4%) or Kicks or Whole Rest */}
+            {/* Simile (%, %2%, %4%) or Kicks or Incoming Tied Comping or Whole Rest */}
             {m.simile === 'percent1' ? (
               <g>
                 {/* 1-bar simile symbol: thick diagonal slash with 2 dots */}
@@ -343,12 +364,41 @@ function renderSystem(
               </g>
             ) : m.kicks && m.kicks.some(Boolean) ? (
               <g>
+                {/* If kick is only an anticipation on beat 4 (steps 14/15 active, steps 0..11 all false),
+                    render comping rhythm slashes on beats 1, 2, 3 */}
+                {(m.kicks[14] || m.kicks[15]) && !m.kicks.slice(0, 12).some(Boolean) && (
+                  <g opacity="0.6">
+                    {[0, 1, 2].map((b) => {
+                      const slashX = barX + 26 + (b * (BAR_WIDTH - 48)) / 3;
+                      const slashY = staffTop + LINE_SPACING * 2;
+                      return (
+                        <line
+                          key={b}
+                          x1={slashX - 6}
+                          y1={slashY + 7}
+                          x2={slashX + 6}
+                          y2={slashY - 7}
+                          stroke="#cbd5e1"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                        />
+                      );
+                    })}
+                  </g>
+                )}
+
                 {/* 16-Step Comping Kicks (Slash noteheads on 3rd staff space) */}
                 {m.kicks.map((isActive, stepIdx) => {
                   if (!isActive) return null;
                   const stepX = barX + 14 + (stepIdx * (BAR_WIDTH - 28)) / 16;
                   const noteY = staffTop + LINE_SPACING * 2; // Middle 3rd line/space
                   const isTied = m.ties && m.ties[stepIdx];
+
+                  // If anticipation at end of measure (step 14 or 15), tie curves over the barline into the next measure
+                  const isAnticipationEnd = stepIdx >= 14;
+                  const tieEndX = isAnticipationEnd ? barX + BAR_WIDTH + 14 : stepX + 22;
+                  const tieMidX = (stepX + 6 + tieEndX) / 2;
+                  const tieMidY = isAnticipationEnd ? noteY + 6 : noteY + 4;
 
                   return (
                     <g key={stepIdx}>
@@ -374,7 +424,7 @@ function renderSystem(
                       {/* Tie curve if tied */}
                       {isTied && (
                         <path
-                          d={`M ${stepX + 6} ${noteY - 4} Q ${stepX + 14} ${noteY + 4} ${stepX + 22} ${noteY - 4}`}
+                          d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
                           fill="none"
                           stroke="#38bdf8"
                           strokeWidth="1.8"
@@ -384,16 +434,68 @@ function renderSystem(
                   );
                 })}
               </g>
-            ) : (
-              /* Normal Whole Measure Rest */
-              <rect
-                x={barX + BAR_WIDTH / 2 - 8}
-                y={staffTop + LINE_SPACING}
-                width="16"
-                height="6"
-                fill="#64748b"
-              />
-            )}
+            ) : (() => {
+              // Check if previous measure has a tie over the barline into this measure
+              const prevMeasure = mIdx > 0 ? measures[mIdx - 1] : undefined;
+              const hasIncomingTie = prevMeasure?.ties && (prevMeasure.ties[14] || prevMeasure.ties[15]);
+
+              if (hasIncomingTie) {
+                // Downbeat is tied from previous measure! Render tied slash notehead on beat 1 + comping slashes on beats 2, 3, 4
+                const noteY = staffTop + LINE_SPACING * 2;
+                const beat1X = barX + 24;
+                return (
+                  <g>
+                    {/* Tied Slash Notehead on Beat 1 */}
+                    <line
+                      x1={beat1X - 5}
+                      y1={noteY + 7}
+                      x2={beat1X + 5}
+                      y2={noteY - 7}
+                      stroke="#f8fafc"
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                    />
+                    <line
+                      x1={beat1X + 5}
+                      y1={noteY - 7}
+                      x2={beat1X + 5}
+                      y2={noteY - 22}
+                      stroke="#f8fafc"
+                      strokeWidth="1.2"
+                    />
+                    {/* Comping rhythm slashes on beats 2, 3, 4 */}
+                    <g opacity="0.6">
+                      {[1, 2, 3].map((b) => {
+                        const slashX = barX + 24 + (b * (BAR_WIDTH - 36)) / 3;
+                        return (
+                          <line
+                            key={b}
+                            x1={slashX - 6}
+                            y1={noteY + 7}
+                            x2={slashX + 6}
+                            y2={noteY - 7}
+                            stroke="#cbd5e1"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                          />
+                        );
+                      })}
+                    </g>
+                  </g>
+                );
+              }
+
+              return (
+                /* Normal Whole Measure Rest */
+                <rect
+                  x={barX + BAR_WIDTH / 2 - 8}
+                  y={staffTop + LINE_SPACING}
+                  width="16"
+                  height="6"
+                  fill="#64748b"
+                />
+              );
+            })()}
 
             {/* Left Barline (Start Repeat 𝄆) */}
             {m.leftBarline === 'start' && (

@@ -82,6 +82,13 @@ function runTests() {
     res3c.success && res3c.newDsl.includes('B(>4&~)')
   );
 
+  // Test 3D: "4小節目の頭食わせて" (user exact prompt)
+  const res3d = processNaturalLanguageCommand(baseDsl, '4小節目の頭食わせて');
+  assert(
+    'Head anticipation: "4小節目の頭食わせて" anticipates measure 4 into measure 3 with B♭7(>4&~)',
+    res3d.success && res3d.newDsl.includes('A♭m7 B♭7(>4&~)')
+  );
+
   // Test 4: "1小節目のコードを食わせて" (edge case: cannot anticipate before bar 1)
   const res4 = processNaturalLanguageCommand(baseDsl, '1小節目のコードを食わせて');
   assert(
