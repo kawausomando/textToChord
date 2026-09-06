@@ -59,15 +59,22 @@ export function App() {
 
   // LLM State
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('textToChord_gemini_api_key') || '');
+  const [selectedModel, setSelectedModel] = useState<string>(
+    () => localStorage.getItem('textToChord_gemini_model') || 'gemini-3.6-flash'
+  );
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
   const [isLlmLoading, setIsLlmLoading] = useState<boolean>(false);
 
-  const handleSaveApiKey = (newKey: string) => {
+  const handleSaveApiKey = (newKey: string, newModel: string) => {
     setApiKey(newKey);
+    setSelectedModel(newModel);
     if (newKey) {
       localStorage.setItem('textToChord_gemini_api_key', newKey);
     } else {
       localStorage.removeItem('textToChord_gemini_api_key');
+    }
+    if (newModel) {
+      localStorage.setItem('textToChord_gemini_model', newModel);
     }
   };
 
@@ -174,7 +181,7 @@ export function App() {
     if (apiKey.trim()) {
       setIsLlmLoading(true);
       try {
-        const result = await executeLlmChartCommand(chartDsl, instruction, apiKey.trim());
+        const result = await executeLlmChartCommand(chartDsl, instruction, apiKey.trim(), selectedModel);
         setNlFeedback(result.explanation);
         if (result.success) {
           setChartDsl(result.newDsl);
@@ -455,6 +462,7 @@ export function App() {
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         apiKey={apiKey}
+        selectedModel={selectedModel}
         onSaveApiKey={handleSaveApiKey}
       />
     </div>

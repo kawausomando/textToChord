@@ -71,7 +71,7 @@ export async function executeLlmChartCommand(
   currentDsl: string,
   instruction: string,
   apiKey: string,
-  model = 'gemini-2.0-flash'
+  model = 'gemini-3.6-flash'
 ): Promise<LlmCommandResult> {
   if (!apiKey) {
     return {

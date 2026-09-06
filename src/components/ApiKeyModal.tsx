@@ -1,26 +1,35 @@
 import React, { useState } from 'react';
-import { X, Key, ExternalLink, Check, ShieldCheck } from 'lucide-react';
+import { X, Key, ExternalLink, Check, ShieldCheck, Cpu } from 'lucide-react';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
   apiKey: string;
-  onSaveApiKey: (key: string) => void;
+  selectedModel: string;
+  onSaveApiKey: (key: string, model: string) => void;
 }
+
+const POPULAR_MODELS = [
+  { id: 'gemini-3.6-flash', name: 'gemini-3.6-flash (最新・推奨)' },
+  { id: 'gemini-2.5-flash', name: 'gemini-2.5-flash' },
+  { id: 'gemini-1.5-flash', name: 'gemini-1.5-flash' },
+];
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   isOpen,
   onClose,
   apiKey,
+  selectedModel,
   onSaveApiKey,
 }) => {
   const [inputKey, setInputKey] = useState(apiKey);
+  const [model, setModel] = useState(selectedModel || 'gemini-3.6-flash');
   const [savedToast, setSavedToast] = useState(false);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
-    onSaveApiKey(inputKey.trim());
+    onSaveApiKey(inputKey.trim(), model.trim() || 'gemini-3.6-flash');
     setSavedToast(true);
     setTimeout(() => {
       setSavedToast(false);
@@ -30,7 +39,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
   const handleClear = () => {
     setInputKey('');
-    onSaveApiKey('');
+    onSaveApiKey('', model);
   };
 
   return (
@@ -90,9 +99,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
         </div>
 
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          Google Gemini APIキーを設定すると、マスターリズム譜の全ルール（4小節グリッド、リピート、キメ記号）を熟知したLLMが、あなたの自然言語指示を解釈してDSLを賢く追記・再構築します。
+          Google Gemini APIキーを設定すると、マスターリズム譜の全ルール（4小節グリッド、リピート、キメ記号）を熟知した最新のLLMモデルが、あなたの自然言語指示を解釈してDSLを賢く追記・再構築します。
         </p>
 
+        {/* API Key Input */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
             Google Gemini API Key
@@ -114,6 +124,35 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
               outline: 'none',
             }}
           />
+        </div>
+
+        {/* Model Selection */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Cpu size={14} color="var(--accent-cyan)" /> モデル選択
+          </label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            style={{
+              width: '100%',
+              background: '#1e293b',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '0.6rem 1rem',
+              color: '#fff',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            {POPULAR_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div
