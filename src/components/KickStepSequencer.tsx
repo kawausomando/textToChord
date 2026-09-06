@@ -44,7 +44,9 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
   };
 
   // Preset macros
-  const applyMacro = (type: '16th-push' | '8th-sync' | 'break-hit' | 'clear') => {
+  const applyMacro = (
+    type: '16th-push' | '8th-sync' | 'charleston' | '3-3-2' | 'four-beat' | 'offbeats' | 'break-hit' | 'clear'
+  ) => {
     const nextKicks = new Array(16).fill(false);
     const nextTies = new Array(16).fill(false);
 
@@ -54,6 +56,23 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
     } else if (type === '8th-sync') {
       nextKicks[14] = true;
       nextTies[14] = true; // 4&~ (8th anticipation)
+    } else if (type === 'charleston') {
+      nextKicks[0] = true;
+      nextKicks[6] = true; // 1, 2& (Charleston)
+    } else if (type === '3-3-2') {
+      nextKicks[0] = true;
+      nextKicks[6] = true;
+      nextKicks[12] = true; // 1, 2&, 4 (3-3-2 Clave / Syncopation)
+    } else if (type === 'four-beat') {
+      nextKicks[0] = true;
+      nextKicks[4] = true;
+      nextKicks[8] = true;
+      nextKicks[12] = true; // 1, 2, 3, 4
+    } else if (type === 'offbeats') {
+      nextKicks[2] = true;
+      nextKicks[6] = true;
+      nextKicks[10] = true;
+      nextKicks[14] = true; // 1&, 2&, 3&, 4&
     } else if (type === 'break-hit') {
       nextKicks[0] = true; // Beat 1 hit
     }
@@ -72,7 +91,7 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
         marginTop: '1rem',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Music size={18} color="var(--accent-cyan)" />
           <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#fff' }}>
@@ -83,32 +102,67 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {/* Macro buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {/* Preset Phrase Macro buttons */}
           <button
             className="btn btn-secondary"
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-            onClick={() => applyMacro('16th-push')}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => applyMacro('charleston')}
+            title="1拍目 + 2拍目裏 (1, 2&)"
           >
-            <Sparkles size={12} color="var(--accent-cyan)" /> 16分裏食い (4a~)
+            チャールストン (1, 2&)
           </button>
           <button
             className="btn btn-secondary"
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => applyMacro('3-3-2')}
+            title="1拍目 + 2拍目裏 + 4拍目 (1, 2&, 4)"
+          >
+            3-3-2 (1, 2&, 4)
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => applyMacro('four-beat')}
+            title="全拍打ち (1, 2, 3, 4)"
+          >
+            4つ打ち
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => applyMacro('offbeats')}
+            title="8分裏打ち (1&, 2&, 3&, 4&)"
+          >
+            裏打ち
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
             onClick={() => applyMacro('8th-sync')}
+            title="4拍目8分食い (4&~)"
           >
             8分食い (4&~)
           </button>
           <button
             className="btn btn-secondary"
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => applyMacro('16th-push')}
+            title="4拍目16分裏食い (4a~)"
+          >
+            <Sparkles size={11} color="var(--accent-cyan)" /> 16分食い (4a~)
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
             onClick={() => applyMacro('break-hit')}
+            title="1拍目頭打ち (hit)"
           >
             頭キメ (hit)
           </button>
           <button
             className="btn btn-secondary"
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: 'var(--accent-rose)' }}
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', color: 'var(--accent-rose)' }}
             onClick={() => applyMacro('clear')}
           >
             クリア
@@ -116,7 +170,7 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
 
           <button
             className="btn btn-secondary"
-            style={{ padding: '0.25rem', marginLeft: '0.5rem' }}
+            style={{ padding: '0.25rem', marginLeft: '0.3rem' }}
             onClick={onClose}
           >
             <X size={16} />

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { MasterChart, Measure } from '../types/chart';
+import { parseKickDsl } from '../utils/chartParser';
 
 interface MasterChartSpreadViewProps {
   chart: MasterChart;
@@ -284,16 +285,19 @@ function renderSystem(
 
                   let chordX = barX + 16 + (cIdx * (BAR_WIDTH - 32)) / Math.max(1, m.chords.length);
 
-                  // If chord is an anticipation kick (e.g. at beat 4& [step 14] or beat 4a [step 15]),
-                  // align it directly above the kick slash notehead near the right barline!
-                  if (chord.kickDsl || (cIdx > 0 && m.kicks && (m.kicks[14] || m.kicks[15]))) {
-                    const kickStep = m.kicks ? (m.kicks[15] ? 15 : m.kicks[14] ? 14 : -1) : -1;
+                  // If chord has specific kickDsl (e.g. Fm7(1) or B♭7(2&~) or anticipation >4&~),
+                  // align it directly above its respective kick slash notehead!
+                  if (chord.kickDsl) {
+                    const parsed = parseKickDsl(chord.kickDsl);
+                    const kickStep = parsed.kicks.findIndex(Boolean);
                     if (kickStep >= 0) {
                       const stepX = barX + 14 + (kickStep * (BAR_WIDTH - 28)) / 16;
-                      chordX = Math.max(barX + 70, stepX - 12);
-                    } else {
-                      chordX = barX + BAR_WIDTH - 60;
+                      chordX = Math.max(barX + 8, Math.min(barX + BAR_WIDTH - 32, stepX - 10));
                     }
+                  } else if (cIdx > 0 && m.kicks && (m.kicks[14] || m.kicks[15])) {
+                    const kickStep = m.kicks[15] ? 15 : 14;
+                    const stepX = barX + 14 + (kickStep * (BAR_WIDTH - 28)) / 16;
+                    chordX = Math.max(barX + 70, stepX - 12);
                   }
 
                   return (

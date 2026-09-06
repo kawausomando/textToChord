@@ -125,11 +125,160 @@ function runTests() {
     res8.success && res8.newDsl.includes('Fm7')
   );
 
+  const res8b = processNaturalLanguageCommand(baseDsl, '2小節目のコードをCsus4に変えて');
+  assert(
+    'Chord replace Csus4: "2小節目のコードをCsus4に変えて" successfully replaced chord with Csus4',
+    res8b.success && res8b.newDsl.includes('Csus4'),
+    res8b
+  );
+
   // Test 9: Transpose Up
   const res9 = processNaturalLanguageCommand(baseDsl, '全体を半音上げて');
   assert(
     'Transpose: "全体を半音上げて" successfully transposed E♭m7 to Em7',
     res9.success && res9.newDsl.includes('Em7')
+  );
+
+  // Test 10: Arbitrary beat combination: 1拍目、2拍目裏、4拍目
+  const res10 = processNaturalLanguageCommand(baseDsl, '4小節目のキメを 1拍目、2拍目裏、4拍目 にして');
+  const parsed10 = parseMasterChartText(res10.newDsl);
+  const m4_10 = parsed10.measures[3];
+  assert(
+    'Arbitrary phrase: "4小節目のキメを 1拍目、2拍目裏、4拍目 にして" applies [kick: 1, 2&, 4]',
+    res10.success &&
+      res10.newDsl.includes('[kick: 1, 2&, 4]') &&
+      m4_10.kicks[0] === true &&
+      m4_10.kicks[6] === true &&
+      m4_10.kicks[12] === true &&
+      !m4_10.kicks[1]
+  );
+
+  // Test 11: Keyword "チャールストン" (1, 2&)
+  const res11 = processNaturalLanguageCommand(baseDsl, '3小節目にチャールストンのキメを入れて');
+  const parsed11 = parseMasterChartText(res11.newDsl);
+  const m3_11 = parsed11.measures[2];
+  assert(
+    'Keyword Charleston: "3小節目にチャールストンのキメを入れて" applies [kick: 1, 2&]',
+    res11.success &&
+      res11.newDsl.includes('[kick: 1, 2&]') &&
+      m3_11.kicks[0] === true &&
+      m3_11.kicks[6] === true &&
+      !m3_11.kicks[12]
+  );
+
+  // Test 12: Backbeat: 2拍目と4拍目
+  const res12 = processNaturalLanguageCommand(baseDsl, '5小節目の2拍目と4拍目をキメて');
+  const parsed12 = parseMasterChartText(res12.newDsl);
+  const m5_12 = parsed12.measures[4];
+  assert(
+    'Backbeat: "5小節目の2拍目と4拍目をキメて" applies [kick: 2, 4]',
+    res12.success &&
+      res12.newDsl.includes('[kick: 2, 4]') &&
+      m5_12.kicks[4] === true &&
+      m5_12.kicks[12] === true &&
+      !m5_12.kicks[0]
+  );
+
+  // Test 13: 4つ打ちキメ (1, 2, 3, 4)
+  const res13 = processNaturalLanguageCommand(baseDsl, '8小節目を4つ打ちキメにして');
+  const parsed13 = parseMasterChartText(res13.newDsl);
+  const m8_13 = parsed13.measures[7];
+  assert(
+    'Four-beat: "8小節目を4つ打ちキメにして" applies [kick: 1, 2, 3, 4]',
+    res13.success &&
+      res13.newDsl.includes('[kick: 1, 2, 3, 4]') &&
+      m8_13.kicks[0] === true &&
+      m8_13.kicks[4] === true &&
+      m8_13.kicks[8] === true &&
+      m8_13.kicks[12] === true
+  );
+
+  // Test 14: Off-beats: 1拍裏と3拍裏
+  const res14 = processNaturalLanguageCommand(baseDsl, '2小節目に1拍裏と3拍裏のキメ');
+  const parsed14 = parseMasterChartText(res14.newDsl);
+  const m2_14 = parsed14.measures[1];
+  assert(
+    'Off-beats: "2小節目に1拍裏と3拍裏のキメ" applies [kick: 1&, 3&]',
+    res14.success &&
+      res14.newDsl.includes('[kick: 1&, 3&]') &&
+      m2_14.kicks[2] === true &&
+      m2_14.kicks[10] === true &&
+      !m2_14.kicks[0]
+  );
+
+  // Test 15: Phrasing with tie: 2拍裏をタイで伸ばして、4拍目もキメて
+  const res15 = processNaturalLanguageCommand(baseDsl, '4小節目の2拍裏をタイで伸ばして、4拍目もキメて');
+  const parsed15 = parseMasterChartText(res15.newDsl);
+  const m4_15 = parsed15.measures[3];
+  assert(
+    'Tied syncopation: "4小節目の2拍裏をタイで伸ばして、4拍目もキメて" applies [kick: 2&~, 4]',
+    res15.success &&
+      res15.newDsl.includes('[kick: 2&~, 4]') &&
+      m4_15.kicks[6] === true &&
+      m4_15.ties[6] === true &&
+      m4_15.kicks[12] === true
+  );
+
+  // Test 16: Multi-measure kick: 4小節目と8小節目のキメをチャールストンにして
+  const res16 = processNaturalLanguageCommand(baseDsl, '4小節目と8小節目のキメをチャールストンにして');
+  const parsed16 = parseMasterChartText(res16.newDsl);
+  assert(
+    'Multi-measure: "4小節目と8小節目のキメをチャールストンにして" applies to both M4 and M8',
+    res16.success &&
+      parsed16.measures[3].kicks[0] === true &&
+      parsed16.measures[3].kicks[6] === true &&
+      parsed16.measures[7].kicks[0] === true &&
+      parsed16.measures[7].kicks[6] === true
+  );
+
+  // Test 17: Direct DSL embedded: 小節3に [kick: 1, 2.5, 4]
+  const res17 = processNaturalLanguageCommand(baseDsl, '小節3に [kick: 1, 2.5, 4]');
+  const parsed17 = parseMasterChartText(res17.newDsl);
+  assert(
+    'Direct DSL: "小節3に [kick: 1, 2.5, 4]" parses and applies correctly',
+    res17.success &&
+      parsed17.measures[2].kicks[0] === true &&
+      parsed17.measures[2].kicks[6] === true &&
+      parsed17.measures[2].kicks[12] === true
+  );
+
+  // Test 18: Multi-measure compact syntax: "4と8小節目のキメを消して"
+  const res18 = processNaturalLanguageCommand(res16.newDsl, '4と8小節目のキメを消して');
+  const parsed18 = parseMasterChartText(res18.newDsl);
+  assert(
+    'Multi-measure compact: "4と8小節目のキメを消して" clears both M4 and M8',
+    res18.success &&
+      parsed18.measures[3].kicks?.every((k) => !k) &&
+      parsed18.measures[7].kicks?.every((k) => !k)
+  );
+
+  // Test 19: Break hit: "4小節目をブレイクにして"
+  const res19 = processNaturalLanguageCommand(baseDsl, '4小節目をブレイクにして');
+  const parsed19 = parseMasterChartText(res19.newDsl);
+  assert(
+    'Break hit: "4小節目をブレイクにして" sets beat 1 hit',
+    res19.success &&
+      parsed19.measures[3].kicks[0] === true &&
+      !parsed19.measures[3].kicks.slice(1).some(Boolean)
+  );
+
+  // Test 20: Charleston syncopation: "3小節目にチャールストンをシンコペーションで入れて"
+  const res20 = processNaturalLanguageCommand(baseDsl, '3小節目にチャールストンをシンコペーションで入れて');
+  const parsed20 = parseMasterChartText(res20.newDsl);
+  assert(
+    'Charleston syncopation: "3小節目にチャールストンをシンコペーションで入れて" applies [kick: 1, 2&~]',
+    res20.success &&
+      res20.newDsl.includes('[kick: 1, 2&~]') &&
+      parsed20.measures[2].kicks[0] === true &&
+      parsed20.measures[2].kicks[6] === true &&
+      parsed20.measures[2].ties[6] === true
+  );
+
+  // Test 21: Tension chord modification robustness: "2小節目のコードをA11に変えて"
+  const res21 = processNaturalLanguageCommand(baseDsl, '2小節目のコードをA11に変えて');
+  assert(
+    'Chord replace A11: "2小節目のコードをA11に変えて" successfully replaced chord with A11 without kick false-positive',
+    res21.success && res21.newDsl.includes('A11') && !res21.newDsl.includes('[kick:')
   );
 
   console.log(`\nTests completed: ${passCount} / ${totalTests} passed.`);

@@ -1,4 +1,10 @@
-import { updateMeasureKickInDsl, parseMasterChartText, applyAnticipationToMeasure } from './chartParser';
+import {
+  updateMeasureKickInDsl,
+  parseMasterChartText,
+  applyAnticipationToMeasure,
+  serializeKicks,
+  parseKickDsl,
+} from './chartParser';
 import { convertChordSymbol } from './converter';
 
 export interface CommandResult {
@@ -52,6 +58,214 @@ function transposeChord(chord: string, dir: 'up' | 'down'): string {
     const cleanRoot = root.replace(/b/g, '♭').replace(/#/g, '♯');
     return map[cleanRoot] || map[root] || root;
   });
+}
+ 
+export interface ParsedRhythmPhrase {
+  kicks: boolean[];
+  ties: boolean[];
+  description: string;
+}
+
+/**
+ * Parses a rhythmic phrase or kick pattern from natural language instructions.
+ * Supports:
+ * 1. Direct DSL format: e.g. "[kick: 1, 2&, 4]"
+ * 2. Famous rhythm / groove keywords:
+ *    - "チャールストン": 1, 2&
+ *    - "3-3-2" / "ソンクラーベ" / "ラテンキメ": 1, 2&, 4
+ *    - "四つ打ち" / "4つ打ち" / "全拍キメ": 1, 2, 3, 4
+ *    - "裏打ち" / "8分裏打ち": 1&, 2&, 3&, 4&
+ *    - "バックビート" / "2拍4拍" / "2・4": 2, 4
+ *    - "1・3拍" / "1拍3拍": 1, 3
+ *    - "頭キメ" / "アタック" / "hit": 1
+ * 3. Arbitrary beat-by-beat combinations:
+ *    - e.g. "1拍目、2拍目裏、4拍目" -> 1, 2&, 4
+ *    - "1拍裏と3拍裏" -> 1&, 3&
+ *    - "2拍裏をタイで伸ばして、4拍目もキメて" -> 2&~, 4
+ *    - "1, 2&, 4" / "1と3"
+ */
+export function parseRhythmPhraseFromText(text: string): ParsedRhythmPhrase | null {
+  const kicks = new Array(16).fill(false);
+  const ties = new Array(16).fill(false);
+
+  // 1. Direct DSL tag embedded in text: [kick: ...]
+  const kickTagMatch = text.match(/\[kick:\s*([^\]]+)\]/i);
+  if (kickTagMatch) {
+    const parsed = parseKickDsl(kickTagMatch[0]);
+    const desc = serializeKicks(parsed.kicks, parsed.ties);
+    return {
+      kicks: parsed.kicks,
+      ties: parsed.ties,
+      description: desc || kickTagMatch[0],
+    };
+  }
+
+  // 2. Preset Rhythm Phrase keywords
+  if (/チャールストン/i.test(text)) {
+    kicks[0] = true; // Beat 1
+    kicks[6] = true; // Beat 2&
+    if (/タイ|伸ば|シンコペ/i.test(text)) {
+      ties[6] = true;
+    }
+    return {
+      kicks,
+      ties,
+      description: ties[6] ? 'チャールストン シンコペーション (1, 2&~)' : 'チャールストン (1, 2&)',
+    };
+  }
+
+  if (/3-3-2|ソンクラーベ|ラテンキメ|クラーベ/i.test(text)) {
+    kicks[0] = true; // Beat 1
+    kicks[6] = true; // Beat 2&
+    kicks[12] = true; // Beat 4
+    if (/タイ|伸ば|シンコペ/i.test(text)) {
+      ties[6] = true;
+    }
+    return {
+      kicks,
+      ties,
+      description: ties[6] ? '3-3-2 シンコペーション (1, 2&~, 4)' : '3-3-2 (1, 2&, 4)',
+    };
+  }
+
+  if (/四つ打ち|4つ打ち|四分打ち|4分打ち|全拍(?:キメ|打ち)|1[、,・\s]*2[、,・\s]*3[、,・\s]*4拍/i.test(text)) {
+    kicks[0] = true;
+    kicks[4] = true;
+    kicks[8] = true;
+    kicks[12] = true;
+    return {
+      kicks,
+      ties,
+      description: '4つ打ちキメ (1, 2, 3, 4)',
+    };
+  }
+
+  if (/8分裏打ち|裏打ち/i.test(text)) {
+    kicks[2] = true;
+    kicks[6] = true;
+    kicks[10] = true;
+    kicks[14] = true;
+    return {
+      kicks,
+      ties,
+      description: '8分裏打ち (1&, 2&, 3&, 4&)',
+    };
+  }
+
+  if (/バックビート|2拍4拍|2・4拍|2[、,・\s]*4拍/i.test(text)) {
+    kicks[4] = true; // Beat 2
+    kicks[12] = true; // Beat 4
+    return {
+      kicks,
+      ties,
+      description: '2・4拍キメ (2, 4)',
+    };
+  }
+
+  if (/1拍3拍|1・3拍|1[、,・\s]*3拍/i.test(text)) {
+    kicks[0] = true; // Beat 1
+    kicks[8] = true; // Beat 3
+    return {
+      kicks,
+      ties,
+      description: '1・3拍キメ (1, 3)',
+    };
+  }
+
+  // 3. Beat-by-Beat Parsing
+  // Remove measure reference prefix so measure numbers aren't confused with beat numbers
+  let cleanedText = text
+    .replace(/(?:第\s*)?(?:\d+\s*(?:[と・,、]|および)\s*)*\d+\s*小節目?(?:の|に|を)?/g, '')
+    .replace(/小節\s*\d+(?:の|に|を)?/g, '')
+    .replace(/M\s*\d+/gi, '');
+
+  // Strip chord modifications if present so chord degrees (e.g. Csus4, A11) are not treated as beats
+  cleanedText = cleanedText.replace(/コード(?:を)?\s*([A-Ga-g][b#♭♯]?[a-zA-Z0-9()\-Δø/]*)\s*(?:に|へ)(?:して|変えて|変更)/, '');
+
+  // Must have an explicit beat indicator (拍/拍目) OR an offbeat/subdivision indicator (&, 裏, +, etc.)
+  const beatRegex = /([1-4])\s*(?:(拍(?:目)?)\s*(?:(裏|ウラ|&|\+|半|\.5)|(16分裏|16分ウラ|a)|(16分|e))?|(?:(裏|ウラ|&|\+|半|\.5)|(16分裏|16分ウラ|a)|(16分|e)))(?:[^\s,、と・]*(タイ|伸ばす|伸ばし|~))?/gi;
+
+  let match: RegExpExecArray | null;
+  let foundAnyBeat = false;
+  const matchedBeatsDesc: string[] = [];
+
+  while ((match = beatRegex.exec(cleanedText)) !== null) {
+    const beatNum = parseInt(match[1], 10);
+    const isOffbeat8th = Boolean(match[3] || match[6]);
+    const isOffbeat16thLast = Boolean(match[4] || match[7]);
+    const isOffbeat16thSecond = Boolean(match[5] || match[8]);
+    const hasTie = Boolean(match[9]);
+
+    if (beatNum >= 1 && beatNum <= 4) {
+      let step = (beatNum - 1) * 4;
+      let label = `${beatNum}拍目`;
+
+      if (isOffbeat8th) {
+        step += 2;
+        label = `${beatNum}拍目裏`;
+      } else if (isOffbeat16thLast) {
+        step += 3;
+        label = `${beatNum}拍目16分裏`;
+      } else if (isOffbeat16thSecond) {
+        step += 1;
+        label = `${beatNum}拍目16分`;
+      }
+
+      kicks[step] = true;
+      if (hasTie) {
+        ties[step] = true;
+        label += '(タイ)';
+      }
+      matchedBeatsDesc.push(label);
+      foundAnyBeat = true;
+    }
+  }
+
+  // Also check compact beat notation: e.g. "1, 2&, 4" or "1 3"
+  if (!foundAnyBeat) {
+    const compactMatch = cleanedText.match(/\b([1-4](?:[&ea~]|\.5)?(?:\s*[,、と・\s]\s*[1-4](?:[&ea~]|\.5)?)+)\b/i);
+    if (compactMatch) {
+      const tokens = compactMatch[1].split(/[,、と・\s]+/).filter(Boolean);
+      tokens.forEach((tok) => {
+        const sm = tok.match(/([1-4])([&ea~]|\.5)?/i);
+        if (sm) {
+          const b = parseInt(sm[1], 10);
+          const sub = sm[2] ? sm[2].toLowerCase() : '';
+          let step = (b - 1) * 4;
+          const hasTie = tok.includes('~');
+          if (sub === '&' || sub === '.5') step += 2;
+          else if (sub === 'a') step += 3;
+          else if (sub === 'e') step += 1;
+          if (step >= 0 && step < 16) {
+            kicks[step] = true;
+            if (hasTie) ties[step] = true;
+            foundAnyBeat = true;
+            matchedBeatsDesc.push(`${b}${sub}`);
+          }
+        }
+      });
+    }
+  }
+
+  if (!foundAnyBeat) {
+    // Single head hit fallback: "頭キメ", "1拍目キメ", "hit", "ブレイク"
+    if (/頭キメ|頭打ち|hit|アタック|1拍目キメ|ブレイク|break/i.test(text)) {
+      kicks[0] = true;
+      return {
+        kicks,
+        ties,
+        description: '頭キメ (hit)',
+      };
+    }
+    return null;
+  }
+
+  const dslTag = serializeKicks(kicks, ties);
+  return {
+    kicks,
+    ties,
+    description: `${matchedBeatsDesc.join(', ')} [${dslTag}]`,
+  };
 }
 
 /**
@@ -195,35 +409,90 @@ export function processNaturalLanguageCommand(currentDsl: string, instruction: s
     }
   }
 
-  // 4. Check Measure-specific commands (e.g. 3小節目, M8, 8小節)
-  const measureMatch = text.match(/(?:第\s*)?(\d+)\s*(?:小節(?:目)?|小節)/i) || text.match(/M\s*(\d+)/i);
-
-  if (measureMatch) {
-    const measureNum = parseInt(measureMatch[1], 10);
-
-    // 4a. Kick / Comping commands (Hit / Clear)
-    if (/頭キメ|頭打ち|hit|アタック|1拍目キメ/i.test(text)) {
-      const kicks = new Array(16).fill(false);
-      const ties = new Array(16).fill(false);
-      kicks[0] = true; // Beat 1 hit
-
-      const newDsl = updateMeasureKickInDsl(currentDsl, measureNum, kicks, ties);
-      return {
-        success: true,
-        newDsl,
-        explanation: `✅ 小節 ${measureNum} に「頭キメ (hit)」を設定しました。`,
-      };
+  // 4. Check Measure-specific commands (e.g. 3小節目, 小節3, M8, 8小節, 4小節目と8小節目, 4と8小節目, 4, 8小節目)
+  const allMeasureMatches = [...text.matchAll(/(?:第\s*)?(\d+(?:\s*(?:[と・,、]|および)\s*\d+)*)\s*(?:小節(?:目)?|小節)|(?:第\s*)?小節\s*(\d+)|M\s*(\d+)/gi)];
+  const targetMeasureNums: number[] = [];
+  allMeasureMatches.forEach((m) => {
+    if (m[1]) {
+      const parts = m[1].split(/[と・,、]|および|\s+/).filter(Boolean);
+      parts.forEach((p) => {
+        const num = parseInt(p, 10);
+        if (!isNaN(num) && !targetMeasureNums.includes(num)) {
+          targetMeasureNums.push(num);
+        }
+      });
+    } else {
+      const num = parseInt(m[2] || m[3], 10);
+      if (!isNaN(num) && !targetMeasureNums.includes(num)) {
+        targetMeasureNums.push(num);
+      }
     }
+  });
 
+  if (targetMeasureNums.length > 0) {
+    const measureNum = targetMeasureNums[0];
+
+    // 4a. Kick / Comping clear commands
     if (/(?:キメ|食い|プッシュ|アンティシペーション)(?:を)?(?:消して|クリア|削除|無くして|リセット)/i.test(text)) {
       const kicks = new Array(16).fill(false);
       const ties = new Array(16).fill(false);
-
-      const newDsl = updateMeasureKickInDsl(currentDsl, measureNum, kicks, ties);
+      let updatedDsl = currentDsl;
+      targetMeasureNums.forEach((mNum) => {
+        updatedDsl = updateMeasureKickInDsl(updatedDsl, mNum, kicks, ties);
+      });
+      const measuresLabel = targetMeasureNums.join(', ');
       return {
         success: true,
-        newDsl,
-        explanation: `✅ 小節 ${measureNum} のキメ・コンピング設定を消去しました。`,
+        newDsl: updatedDsl,
+        explanation: `✅ 小節 ${measuresLabel} のキメ・コンピング設定を消去しました。`,
+      };
+    }
+
+    // 4b. Chord replacement in measure (e.g. 2小節目のコードをFm7に変えて, 2小節目のコードをCsus4に変えて)
+    const chordChangeMatch = text.match(/コード(?:を)?\s*([A-Ga-g][b#♭♯]?[a-zA-Z0-9()\-Δø/]*)\s*(?:に|へ)(?:して|変えて|変更)/);
+    if (chordChangeMatch) {
+      const rawChord = chordChangeMatch[1].trim();
+      const formattedChord = convertChordSymbol(rawChord);
+
+      const lines = currentDsl.split('\n');
+      let counter = 1;
+      for (let l = 0; l < lines.length; l++) {
+        if (lines[l].includes('|')) {
+          const parts = lines[l].split('|');
+          const innerParts = parts.slice(1, -1);
+          if (counter + innerParts.length > measureNum) {
+            const targetIdx = measureNum - counter + 1;
+            const oldContent = parts[targetIdx];
+            const existingKick = oldContent.match(/\[kick:[^\]]+\]|\(>?[0-9a-z~&+.!]+\)/i);
+            const kickPart = existingKick ? ` ${existingKick[0]}` : '';
+            const voltaPrefix = oldContent.match(/^(\s*\d+\.\s*)/);
+            const voltaPart = voltaPrefix ? voltaPrefix[1] : ' ';
+
+            parts[targetIdx] = `${voltaPart}${formattedChord}${kickPart} `;
+            lines[l] = parts.join('|');
+            return {
+              success: true,
+              newDsl: lines.join('\n'),
+              explanation: `✅ 小節 ${measureNum} のコードを「${formattedChord}」に変更しました。`,
+            };
+          }
+          counter += innerParts.length;
+        }
+      }
+    }
+
+    // 4c. Arbitrary Kick / Rhythm phrase commands (Beat numbers, Charleston, 3-3-2, 4-beat, off-beats, direct DSL)
+    const parsedPhrase = parseRhythmPhraseFromText(text);
+    if (parsedPhrase) {
+      let updatedDsl = currentDsl;
+      targetMeasureNums.forEach((mNum) => {
+        updatedDsl = updateMeasureKickInDsl(updatedDsl, mNum, parsedPhrase.kicks, parsedPhrase.ties);
+      });
+      const measuresLabel = targetMeasureNums.join(', ');
+      return {
+        success: true,
+        newDsl: updatedDsl,
+        explanation: `✅ 小節 ${measuresLabel} にキメ「${parsedPhrase.description}」を設定しました。`,
       };
     }
 
@@ -294,39 +563,6 @@ export function processNaturalLanguageCommand(currentDsl: string, instruction: s
               success: true,
               newDsl: lines.join('\n'),
               explanation: `✅ 小節 ${measureNum} に「セーニョ (𝄋)」記号を追加しました。`,
-            };
-          }
-          counter += innerParts.length;
-        }
-      }
-    }
-
-    // 3d. Chord replacement in measure
-    const chordChangeMatch = text.match(/コード(?:を)?\s*([A-Ga-g][b#♭♯]?[a-zA-Z0-9()\-Δø/]*)\s*(?:に|へ)(?:して|変えて|変更)/);
-    if (chordChangeMatch) {
-      const rawChord = chordChangeMatch[1].trim();
-      const formattedChord = convertChordSymbol(rawChord);
-
-      const lines = currentDsl.split('\n');
-      let counter = 1;
-      for (let l = 0; l < lines.length; l++) {
-        if (lines[l].includes('|')) {
-          const parts = lines[l].split('|');
-          const innerParts = parts.slice(1, -1);
-          if (counter + innerParts.length > measureNum) {
-            const targetIdx = measureNum - counter + 1;
-            const oldContent = parts[targetIdx];
-            const existingKick = oldContent.match(/\[kick:[^\]]+\]|\(>?[0-9a-z~&+.!]+\)/i);
-            const kickPart = existingKick ? ` ${existingKick[0]}` : '';
-            const voltaPrefix = oldContent.match(/^(\s*\d+\.\s*)/);
-            const voltaPart = voltaPrefix ? voltaPrefix[1] : ' ';
-
-            parts[targetIdx] = `${voltaPart}${formattedChord}${kickPart} `;
-            lines[l] = parts.join('|');
-            return {
-              success: true,
-              newDsl: lines.join('\n'),
-              explanation: `✅ 小節 ${measureNum} のコードを「${formattedChord}」に変更しました。`,
             };
           }
           counter += innerParts.length;
