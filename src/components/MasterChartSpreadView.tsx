@@ -407,11 +407,49 @@ function renderSystem(
                 )}
 
                 {/* 16-Step Comping Kicks (Slash noteheads on 3rd staff space) */}
+                {/* 8th note beams for pairs within the same beat */}
+                {[0, 1, 2, 3].map((b) => {
+                  const s1 = b * 4;
+                  const s2 = b * 4 + 2;
+                  if (m.kicks[s1] && m.kicks[s2] && !m.kicks[s1 + 1] && !m.kicks[s1 + 3]) {
+                    const x1 = barX + 14 + (s1 * (BAR_WIDTH - 28)) / 16 + 5;
+                    const x2 = barX + 14 + (s2 * (BAR_WIDTH - 28)) / 16 + 5;
+                    const beamY = staffTop + LINE_SPACING * 2 - 24 + 1.2;
+                    return (
+                      <line
+                        key={`beam-${b}`}
+                        x1={x1}
+                        y1={beamY}
+                        x2={x2}
+                        y2={beamY}
+                        stroke="#f8fafc"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                    );
+                  }
+                  return null;
+                })}
+
                 {m.kicks.map((isActive, stepIdx) => {
                   if (!isActive) return null;
                   const stepX = barX + 14 + (stepIdx * (BAR_WIDTH - 28)) / 16;
                   const noteY = staffTop + LINE_SPACING * 2; // Middle 3rd line/space
+                  const stemX = stepX + 5;
+                  const stemTopY = noteY - 24;
                   const isTied = m.ties && m.ties[stepIdx];
+
+                  // Note duration flag / beam determination
+                  const b = Math.floor(stepIdx / 4);
+                  const isBeamed8th =
+                    m.kicks[b * 4] &&
+                    m.kicks[b * 4 + 2] &&
+                    !m.kicks[b * 4 + 1] &&
+                    !m.kicks[b * 4 + 3] &&
+                    (stepIdx === b * 4 || stepIdx === b * 4 + 2);
+
+                  const is16thNote = stepIdx % 2 === 1;
+                  const is8thNote = !isBeamed8th && stepIdx % 4 === 2;
 
                   // If anticipation at end of measure (step 14 or 15), tie curves over the barline into the next measure
                   const isAnticipationEnd = stepIdx >= 14;
@@ -433,13 +471,43 @@ function renderSystem(
                       />
                       {/* Stem up */}
                       <line
-                        x1={stepX + 5}
+                        x1={stemX}
                         y1={noteY - 7}
-                        x2={stepX + 5}
-                        y2={noteY - 22}
+                        x2={stemX}
+                        y2={stemTopY}
                         stroke="#f8fafc"
                         strokeWidth="1.2"
                       />
+
+                      {/* 8th Note Single Flag (8分音符の旗) */}
+                      {is8thNote && (
+                        <path
+                          d={`M ${stemX} ${stemTopY}
+                              C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
+                              C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
+                              Z`}
+                          fill="#f8fafc"
+                        />
+                      )}
+
+                      {/* 16th Note Double Flag (16分音符の2本旗) */}
+                      {is16thNote && (
+                        <g fill="#f8fafc">
+                          <path
+                            d={`M ${stemX} ${stemTopY}
+                                C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
+                                C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
+                                Z`}
+                          />
+                          <path
+                            d={`M ${stemX} ${stemTopY + 4.5}
+                                C ${stemX + 6.5} ${stemTopY + 6}, ${stemX + 7.5} ${stemTopY + 10}, ${stemX + 4.5} ${stemTopY + 15}
+                                C ${stemX + 6} ${stemTopY + 11.5}, ${stemX + 3.5} ${stemTopY + 8}, ${stemX} ${stemTopY + 8}
+                                Z`}
+                          />
+                        </g>
+                      )}
+
                       {/* Tie curve if tied */}
                       {isTied && (
                         <path
@@ -478,7 +546,7 @@ function renderSystem(
                       x1={beat1X + 5}
                       y1={noteY - 7}
                       x2={beat1X + 5}
-                      y2={noteY - 22}
+                      y2={noteY - 24}
                       stroke="#f8fafc"
                       strokeWidth="1.2"
                     />
