@@ -5,9 +5,11 @@ import { VisualLeadSheet } from './components/VisualLeadSheet';
 import { SettingsModal } from './components/SettingsModal';
 import { MasterChartSpreadView } from './components/MasterChartSpreadView';
 import { KickStepSequencer } from './components/KickStepSequencer';
+import { NaturalLanguageBar } from './components/NaturalLanguageBar';
 import { convertRoughText, DEFAULT_OPTIONS } from './utils/converter';
 import type { ConverterOptions } from './utils/converter';
 import { parseMasterChartText, updateMeasureKickInDsl } from './utils/chartParser';
+import { processNaturalLanguageCommand } from './utils/aiCommandProcessor';
 import type { MasterChart } from './types/chart';
 import { audioPlayer } from './utils/audio';
 import { downloadMusicXML } from './utils/musicxml';
@@ -51,6 +53,7 @@ export function App() {
   const [chartDsl, setChartDsl] = useState<string>(SOP_DEFAULT_DSL);
   const [selectedMeasureId, setSelectedMeasureId] = useState<string | null>(null);
   const [chartCopied, setChartCopied] = useState(false);
+  const [nlFeedback, setNlFeedback] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dslTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -148,6 +151,15 @@ export function App() {
 
     const nextDsl = updateMeasureKickInDsl(chartDsl, target.number, kicks, ties);
     setChartDsl(nextDsl);
+  };
+
+  // Natural Language Command Execution
+  const handleExecuteNlCommand = (instruction: string) => {
+    const result = processNaturalLanguageCommand(chartDsl, instruction);
+    setNlFeedback(result.explanation);
+    if (result.success) {
+      setChartDsl(result.newDsl);
+    }
   };
 
   return (
@@ -264,8 +276,14 @@ export function App() {
                 </div>
               </div>
 
-              {/* Right Column: Master Rhythm Chart Spread View */}
+              {/* Right Column: Master Rhythm Chart Spread View & AI Copilot */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Natural Language Prompt Bar */}
+                <NaturalLanguageBar
+                  onExecuteCommand={handleExecuteNlCommand}
+                  lastFeedback={nlFeedback}
+                />
+
                 <MasterChartSpreadView
                   chart={masterChart}
                   selectedMeasureId={selectedMeasureId}
