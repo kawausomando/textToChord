@@ -54,6 +54,7 @@ export function App() {
   // Workbench State
   const [chartDsl, setChartDsl] = useState<string>(SOP_DEFAULT_DSL);
   const [selectedMeasureId, setSelectedMeasureId] = useState<string | null>(null);
+  const [editingKickMeasureId, setEditingKickMeasureId] = useState<string | null>(null);
   const [chartCopied, setChartCopied] = useState(false);
   const [nlFeedback, setNlFeedback] = useState<string | null>(null);
 
@@ -91,10 +92,10 @@ export function App() {
     return parseMasterChartText(chartDsl, 'MASTER RHYTHM LEAD SHEET');
   }, [chartDsl]);
 
-  const selectedMeasure = useMemo(() => {
-    if (!selectedMeasureId) return null;
-    return masterChart.measures.find((m) => m.id === selectedMeasureId) || null;
-  }, [masterChart, selectedMeasureId]);
+  const editingKickMeasure = useMemo(() => {
+    if (!editingKickMeasureId) return null;
+    return masterChart.measures.find((m) => m.id === editingKickMeasureId) || null;
+  }, [masterChart, editingKickMeasureId]);
 
   // Insert symbol in Simple Converter
   const handleInsertSymbol = (symbol: string) => {
@@ -310,7 +311,7 @@ export function App() {
 
                 <div style={{ marginTop: '0.8rem', fontSize: '0.75rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
                   💡 簡易変換モードの <code>| Fm7 | G7 |</code> を貼り付け可能。<br />
-                  💡 譜面の小節をクリックすると16ステップキメ編集が開きます。
+                  💡 譜面の小節をダブルクリックすると16ステップキメ編集が開きます。
                 </div>
               </div>
 
@@ -329,13 +330,17 @@ export function App() {
                   chart={masterChart}
                   selectedMeasureId={selectedMeasureId}
                   onSelectMeasure={(id) => setSelectedMeasureId(id)}
+                  onDoubleClickMeasure={(id) => {
+                    setSelectedMeasureId(id);
+                    setEditingKickMeasureId(id);
+                  }}
                 />
 
-                {/* 16-Step Comping Sequencer (Appears when measure is selected) */}
-                {selectedMeasure && (
+                {/* 16-Step Comping Sequencer Modal (Appears on measure double-click) */}
+                {editingKickMeasure && (
                   <KickStepSequencer
-                    measure={selectedMeasure}
-                    onClose={() => setSelectedMeasureId(null)}
+                    measure={editingKickMeasure}
+                    onClose={() => setEditingKickMeasureId(null)}
                     onUpdateKicks={handleUpdateMeasureKicks}
                   />
                 )}

@@ -6,6 +6,7 @@ interface MasterChartSpreadViewProps {
   chart: MasterChart;
   selectedMeasureId: string | null;
   onSelectMeasure: (measureId: string) => void;
+  onDoubleClickMeasure?: (measureId: string) => void;
 }
 
 // 5-line staff constants
@@ -21,6 +22,7 @@ export const MasterChartSpreadView: React.FC<MasterChartSpreadViewProps> = ({
   chart,
   selectedMeasureId,
   onSelectMeasure,
+  onDoubleClickMeasure,
 }) => {
   // Group measures into systems of 4
   const systems: Measure[][] = [];
@@ -84,7 +86,7 @@ export const MasterChartSpreadView: React.FC<MasterChartSpreadViewProps> = ({
           </div>
 
           <svg viewBox={`0 0 ${SVG_WIDTH} ${Math.max(200, page1Systems.length * SYSTEM_HEIGHT)}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-            {page1Systems.map((systemMeasures, sIdx) => renderSystem(systemMeasures, sIdx, selectedMeasureId, onSelectMeasure))}
+            {page1Systems.map((systemMeasures, sIdx) => renderSystem(systemMeasures, sIdx, selectedMeasureId, onSelectMeasure, onDoubleClickMeasure))}
           </svg>
         </div>
 
@@ -104,7 +106,7 @@ export const MasterChartSpreadView: React.FC<MasterChartSpreadViewProps> = ({
             </div>
 
             <svg viewBox={`0 0 ${SVG_WIDTH} ${Math.max(200, page2Systems.length * SYSTEM_HEIGHT)}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-              {page2Systems.map((systemMeasures, sIdx) => renderSystem(systemMeasures, sIdx, selectedMeasureId, onSelectMeasure))}
+              {page2Systems.map((systemMeasures, sIdx) => renderSystem(systemMeasures, sIdx, selectedMeasureId, onSelectMeasure, onDoubleClickMeasure))}
             </svg>
           </div>
         )}
@@ -117,7 +119,8 @@ function renderSystem(
   measures: Measure[],
   systemIndex: number,
   selectedMeasureId: string | null,
-  onSelectMeasure: (id: string) => void
+  onSelectMeasure: (id: string) => void,
+  onDoubleClickMeasure?: (id: string) => void
 ) {
   const yOffset = systemIndex * SYSTEM_HEIGHT;
   const staffTop = yOffset + STAFF_Y_START;
@@ -149,6 +152,10 @@ function renderSystem(
           <g
             key={m.id}
             onClick={() => onSelectMeasure(m.id)}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              onDoubleClickMeasure?.(m.id);
+            }}
             style={{ cursor: 'pointer' }}
           >
             {/* Clickable Hover / Select Background */}
@@ -407,119 +414,198 @@ function renderSystem(
                 )}
 
                 {/* 16-Step Comping Kicks (Slash noteheads on 3rd staff space) */}
-                {/* 8th note beams for pairs within the same beat */}
-                {[0, 1, 2, 3].map((b) => {
-                  const s1 = b * 4;
-                  const s2 = b * 4 + 2;
-                  if (m.kicks[s1] && m.kicks[s2] && !m.kicks[s1 + 1] && !m.kicks[s1 + 3]) {
-                    const x1 = barX + 14 + (s1 * (BAR_WIDTH - 28)) / 16 + 5;
-                    const x2 = barX + 14 + (s2 * (BAR_WIDTH - 28)) / 16 + 5;
-                    const beamY = staffTop + LINE_SPACING * 2 - 24 + 1.2;
-                    return (
-                      <line
-                        key={`beam-${b}`}
-                        x1={x1}
-                        y1={beamY}
-                        x2={x2}
-                        y2={beamY}
-                        stroke="#f8fafc"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                      />
-                    );
+                {(() => {
+                  const spanMap = new Map<number, number>();
+                  const activeSteps: number[] = [];
+                  m.kicks.forEach((act, s) => {
+                    if (act) activeSteps.push(s);
+                  });
+                  for (let i = 0; i < activeSteps.length; i++) {
+                    const cur = activeSteps[i];
+                    const next = i + 1 < activeSteps.length ? activeSteps[i + 1] : 16;
+                    spanMap.set(cur, next - cur);
                   }
-                  return null;
-                })}
 
-                {m.kicks.map((isActive, stepIdx) => {
-                  if (!isActive) return null;
-                  const stepX = barX + 14 + (stepIdx * (BAR_WIDTH - 28)) / 16;
-                  const noteY = staffTop + LINE_SPACING * 2; // Middle 3rd line/space
-                  const stemX = stepX + 5;
+                  const getStemX = (step: number) => barX + 14 + (step * (BAR_WIDTH - 28)) / 16 + 5;
+                  const noteY = staffTop + LINE_SPACING * 2;
                   const stemTopY = noteY - 24;
-                  const isTied = m.ties && m.ties[stepIdx];
-
-                  // Note duration flag / beam determination
-                  const b = Math.floor(stepIdx / 4);
-                  const isBeamed8th =
-                    m.kicks[b * 4] &&
-                    m.kicks[b * 4 + 2] &&
-                    !m.kicks[b * 4 + 1] &&
-                    !m.kicks[b * 4 + 3] &&
-                    (stepIdx === b * 4 || stepIdx === b * 4 + 2);
-
-                  const is16thNote = stepIdx % 2 === 1;
-                  const is8thNote = !isBeamed8th && stepIdx % 4 === 2;
-
-                  // If anticipation at end of measure (step 14 or 15), tie curves over the barline into the next measure
-                  const isAnticipationEnd = stepIdx >= 14;
-                  const tieEndX = isAnticipationEnd ? barX + BAR_WIDTH + 14 : stepX + 22;
-                  const tieMidX = (stepX + 6 + tieEndX) / 2;
-                  const tieMidY = isAnticipationEnd ? noteY + 6 : noteY + 4;
 
                   return (
-                    <g key={stepIdx}>
-                      {/* Slash Notehead */}
-                      <line
-                        x1={stepX - 5}
-                        y1={noteY + 7}
-                        x2={stepX + 5}
-                        y2={noteY - 7}
-                        stroke="#f8fafc"
-                        strokeWidth="3.5"
-                        strokeLinecap="round"
-                      />
-                      {/* Stem up */}
-                      <line
-                        x1={stemX}
-                        y1={noteY - 7}
-                        x2={stemX}
-                        y2={stemTopY}
-                        stroke="#f8fafc"
-                        strokeWidth="1.2"
-                      />
+                    <g>
+                      {/* Strict 1-Beat Grouping Beams (Beams NEVER cross beats) */}
+                      {[0, 1, 2, 3].map((b) => {
+                        const beatSteps = [b * 4, b * 4 + 1, b * 4 + 2, b * 4 + 3];
+                        const activeInBeat = beatSteps.filter((s) => m.kicks[s]);
+                        if (activeInBeat.length < 2) return null;
 
-                      {/* 8th Note Single Flag (8分音符の旗) */}
-                      {is8thNote && (
-                        <path
-                          d={`M ${stemX} ${stemTopY}
-                              C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
-                              C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
-                              Z`}
-                          fill="#f8fafc"
-                        />
-                      )}
+                        const firstStep = activeInBeat[0];
+                        const lastStep = activeInBeat[activeInBeat.length - 1];
+                        const primaryBeamY = stemTopY + 1.2;
+                        const secondaryBeamY = stemTopY + 5.8;
 
-                      {/* 16th Note Double Flag (16分音符の2本旗) */}
-                      {is16thNote && (
-                        <g fill="#f8fafc">
-                          <path
-                            d={`M ${stemX} ${stemTopY}
-                                C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
-                                C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
-                                Z`}
-                          />
-                          <path
-                            d={`M ${stemX} ${stemTopY + 4.5}
-                                C ${stemX + 6.5} ${stemTopY + 6}, ${stemX + 7.5} ${stemTopY + 10}, ${stemX + 4.5} ${stemTopY + 15}
-                                C ${stemX + 6} ${stemTopY + 11.5}, ${stemX + 3.5} ${stemTopY + 8}, ${stemX} ${stemTopY + 8}
-                                Z`}
-                          />
-                        </g>
-                      )}
+                        const is16thLevel = (s: number) => (s % 2 === 1) || (spanMap.get(s) === 1);
 
-                      {/* Tie curve if tied */}
-                      {isTied && (
-                        <path
-                          d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
-                          fill="none"
-                          stroke="#38bdf8"
-                          strokeWidth="1.8"
-                        />
-                      )}
+                        // Secondary beams for consecutive 16th notes
+                        const secondaryBeams: Array<{ x1: number; x2: number }> = [];
+                        for (let i = 0; i < activeInBeat.length - 1; i++) {
+                          const sA = activeInBeat[i];
+                          const sB = activeInBeat[i + 1];
+                          if (is16thLevel(sA) && is16thLevel(sB) && sB - sA === 1) {
+                            secondaryBeams.push({ x1: getStemX(sA), x2: getStemX(sB) });
+                          }
+                        }
+
+                        // Fractional beamlets for isolated 16th notes in a beamed beat
+                        activeInBeat.forEach((s) => {
+                          if (s % 2 === 1) {
+                            const hasSec = secondaryBeams.some(
+                              (sb) => Math.abs(sb.x1 - getStemX(s)) < 0.1 || Math.abs(sb.x2 - getStemX(s)) < 0.1
+                            );
+                            if (!hasSec) {
+                              const beamletLen = 7;
+                              if (s > firstStep) {
+                                secondaryBeams.push({ x1: getStemX(s) - beamletLen, x2: getStemX(s) });
+                              } else {
+                                secondaryBeams.push({ x1: getStemX(s), x2: getStemX(s) + beamletLen });
+                              }
+                            }
+                          }
+                        });
+
+                        return (
+                          <g key={`beat-beams-${b}`}>
+                            {/* Primary 8th Beam */}
+                            <line
+                              x1={getStemX(firstStep)}
+                              y1={primaryBeamY}
+                              x2={getStemX(lastStep)}
+                              y2={primaryBeamY}
+                              stroke="#f8fafc"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                            />
+                            {/* Secondary 16th Beams / Beamlets */}
+                            {secondaryBeams.map((sb, sbIdx) => (
+                              <line
+                                key={`sec-${sbIdx}`}
+                                x1={sb.x1}
+                                y1={secondaryBeamY}
+                                x2={sb.x2}
+                                y2={secondaryBeamY}
+                                stroke="#f8fafc"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                              />
+                            ))}
+                          </g>
+                        );
+                      })}
+
+                      {/* Active Kick Noteheads, Stems, Flags, Dots, Ties */}
+                      {m.kicks.map((isActive, stepIdx) => {
+                        if (!isActive) return null;
+                        const stepX = barX + 14 + (stepIdx * (BAR_WIDTH - 28)) / 16;
+                        const stemX = stepX + 5;
+                        const isTied = m.ties && m.ties[stepIdx];
+
+                        const span = spanMap.get(stepIdx) || (16 - stepIdx);
+                        const isDotted = span === 3 || span === 6 || span === 12;
+
+                        // 1-Beat grouping check: if 2+ notes in beat, this note is beamed
+                        const b = Math.floor(stepIdx / 4);
+                        const activeInBeat = [b * 4, b * 4 + 1, b * 4 + 2, b * 4 + 3].filter((s) => m.kicks[s]);
+                        const isBeamed = activeInBeat.length >= 2;
+
+                        // Isolated flags: only if note is NOT beamed
+                        // Dotted quarter notes (span === 6 or longer) and downbeat quarter notes have 0 flags!
+                        // Dotted 8th notes (span === 3) and 8th notes have 1 flag.
+                        // 16th notes have 2 flags.
+                        const isDottedQuarterOrLonger = span >= 6 || (stepIdx % 4 === 0 && span >= 4);
+                        const is8thNote = !isBeamed && !isDottedQuarterOrLonger && (span === 3 || stepIdx % 4 === 2);
+                        const is16thNote = !isBeamed && !isDottedQuarterOrLonger && span !== 3 && stepIdx % 2 === 1;
+
+                        // Tie curve (end of measure curves over barline)
+                        const isAnticipationEnd = stepIdx >= 14;
+                        const tieEndX = isAnticipationEnd ? barX + BAR_WIDTH + 14 : stepX + 22;
+                        const tieMidX = (stepX + 6 + tieEndX) / 2;
+                        const tieMidY = isAnticipationEnd ? noteY + 6 : noteY + 4;
+
+                        return (
+                          <g key={stepIdx}>
+                            {/* Slash Notehead */}
+                            <line
+                              x1={stepX - 5}
+                              y1={noteY + 7}
+                              x2={stepX + 5}
+                              y2={noteY - 7}
+                              stroke="#f8fafc"
+                              strokeWidth="3.5"
+                              strokeLinecap="round"
+                            />
+                            {/* Stem up */}
+                            <line
+                              x1={stemX}
+                              y1={noteY - 7}
+                              x2={stemX}
+                              y2={stemTopY}
+                              stroke="#f8fafc"
+                              strokeWidth="1.2"
+                            />
+
+                            {/* Augmentation Dot (付点) in 3rd staff space */}
+                            {isDotted && (
+                              <circle
+                                cx={stepX + 11}
+                                cy={noteY - 4.5}
+                                r="2.2"
+                                fill="#f8fafc"
+                              />
+                            )}
+
+                            {/* 8th Note Single Flag (8分音符の旗) */}
+                            {is8thNote && (
+                              <path
+                                d={`M ${stemX} ${stemTopY}
+                                    C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
+                                    C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
+                                    Z`}
+                                fill="#f8fafc"
+                              />
+                            )}
+
+                            {/* 16th Note Double Flag (16分音符の2本旗) */}
+                            {is16thNote && (
+                              <g fill="#f8fafc">
+                                <path
+                                  d={`M ${stemX} ${stemTopY}
+                                      C ${stemX + 6.5} ${stemTopY + 1.5}, ${stemX + 7.5} ${stemTopY + 5.5}, ${stemX + 4.5} ${stemTopY + 10.5}
+                                      C ${stemX + 6} ${stemTopY + 7}, ${stemX + 3.5} ${stemTopY + 3.5}, ${stemX} ${stemTopY + 3.5}
+                                      Z`}
+                                />
+                                <path
+                                  d={`M ${stemX} ${stemTopY + 4.5}
+                                      C ${stemX + 6.5} ${stemTopY + 6}, ${stemX + 7.5} ${stemTopY + 10}, ${stemX + 4.5} ${stemTopY + 15}
+                                      C ${stemX + 6} ${stemTopY + 11.5}, ${stemX + 3.5} ${stemTopY + 8}, ${stemX} ${stemTopY + 8}
+                                      Z`}
+                                />
+                              </g>
+                            )}
+
+                            {/* Tie curve if tied */}
+                            {isTied && (
+                              <path
+                                d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
+                                fill="none"
+                                stroke="#38bdf8"
+                                strokeWidth="1.8"
+                              />
+                            )}
+                          </g>
+                        );
+                      })}
                     </g>
                   );
-                })}
+                })()}
               </g>
             ) : (() => {
               // Check if previous measure has a tie over the barline into this measure

@@ -20,6 +20,17 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
   onClose,
   onUpdateKicks,
 }) => {
+  // Close on Escape key (called unconditionally before any early return)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   if (!measure) return null;
 
   const currentKicks = measure.kicks || new Array(16).fill(false);
@@ -81,16 +92,35 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
 
   return (
     <div
-      className="glass-panel animate-fade-in"
       style={{
-        padding: '1.2rem',
-        background: '#0f172a',
-        border: '1px solid var(--accent-cyan)',
-        borderRadius: '12px',
-        boxShadow: '0 8px 32px rgba(6, 182, 212, 0.2)',
-        marginTop: '1rem',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(8px)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
       }}
+      onClick={onClose}
     >
+      <div
+        className="glass-panel animate-fade-in"
+        style={{
+          maxWidth: '920px',
+          width: '100%',
+          background: '#0f172a',
+          border: '1px solid var(--accent-cyan)',
+          borderRadius: '14px',
+          boxShadow: '0 12px 40px rgba(6, 182, 212, 0.25)',
+          padding: '1.4rem',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Music size={18} color="var(--accent-cyan)" />
@@ -267,5 +297,6 @@ export const KickStepSequencer: React.FC<KickStepSequencerProps> = ({
         })}
       </div>
     </div>
+  </div>
   );
 };
