@@ -584,17 +584,23 @@ function renderSystem(
 
                         // Tie curves:
                         // 1. Intra-measure beat-crossing tie (connects to next note in allNotes)
-                        // 2. Barline anticipation tie (step 14 or 15 with tie curving into next measure)
+                        // 2. Barline anticipation tie (step 14 or 15 with tie curving across barline)
+                        // Standard music notation (Gould, Behind Bars): ties on notes on middle line
+                        // are positioned in Space 3 underneath the noteheads (between Line 3 and Line 4).
                         let tieCurve: React.ReactNode = null;
                         if (note.isTiedToNext) {
                           const isAnticipationEnd = note.step >= 14;
+                          const startX = stepX + 2;
+                          const startY = noteY + 4;
+                          const tieMidY = noteY + 11;
+
                           if (isAnticipationEnd) {
-                            const tieEndX = barX + BAR_WIDTH + 14;
-                            const tieMidX = (stepX + 6 + tieEndX) / 2;
-                            const tieMidY = noteY + 6;
+                            // Crosses barline into next measure as an open-ended tie (no destination note rendered)
+                            const tieEndX = Math.min(SVG_WIDTH - 2, barX + BAR_WIDTH + 14);
+                            const tieMidX = (startX + tieEndX) / 2;
                             tieCurve = (
                               <path
-                                d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
+                                d={`M ${startX} ${startY} Q ${tieMidX} ${tieMidY} ${tieEndX} ${startY}`}
                                 fill="none"
                                 stroke="#38bdf8"
                                 strokeWidth="1.8"
@@ -604,11 +610,11 @@ function renderSystem(
                             const nextNote = allNotes[nIdx + 1];
                             if (nextNote) {
                               const destX = getStepX(nextNote.step);
-                              const tieMidX = (stepX + 6 + destX - 4) / 2;
-                              const tieMidY = noteY + 7;
+                              const endX = destX - 2;
+                              const tieMidX = (startX + endX) / 2;
                               tieCurve = (
                                 <path
-                                  d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${destX - 2} ${noteY - 4}`}
+                                  d={`M ${startX} ${startY} Q ${tieMidX} ${tieMidY} ${endX} ${startY}`}
                                   fill="none"
                                   stroke="#38bdf8"
                                   strokeWidth="1.8"
@@ -688,68 +694,16 @@ function renderSystem(
                   );
                 })()}
               </g>
-            ) : (() => {
-              // Check if previous measure has a tie over the barline into this measure
-              const prevMeasure = mIdx > 0 ? measures[mIdx - 1] : undefined;
-              const hasIncomingTie = prevMeasure?.ties && (prevMeasure.ties[14] || prevMeasure.ties[15]);
-
-              if (hasIncomingTie) {
-                // Downbeat is tied from previous measure! Render tied slash notehead on beat 1 + comping slashes on beats 2, 3, 4
-                const noteY = staffTop + LINE_SPACING * 2;
-                const beat1X = barX + 24;
-                return (
-                  <g>
-                    {/* Tied Slash Notehead on Beat 1 */}
-                    <line
-                      x1={beat1X - 5}
-                      y1={noteY + 7}
-                      x2={beat1X + 5}
-                      y2={noteY - 7}
-                      stroke="#f8fafc"
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                    />
-                    <line
-                      x1={beat1X + 5}
-                      y1={noteY - 7}
-                      x2={beat1X + 5}
-                      y2={noteY - 24}
-                      stroke="#f8fafc"
-                      strokeWidth="1.2"
-                    />
-                    {/* Comping rhythm slashes on beats 2, 3, 4 */}
-                    <g opacity="0.6">
-                      {[1, 2, 3].map((b) => {
-                        const slashX = barX + 24 + (b * (BAR_WIDTH - 36)) / 3;
-                        return (
-                          <line
-                            key={b}
-                            x1={slashX - 6}
-                            y1={noteY + 7}
-                            x2={slashX + 6}
-                            y2={noteY - 7}
-                            stroke="#cbd5e1"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                          />
-                        );
-                      })}
-                    </g>
-                  </g>
-                );
-              }
-
-              return (
-                /* Normal Whole Measure Rest */
-                <rect
-                  x={barX + BAR_WIDTH / 2 - 8}
-                  y={staffTop + LINE_SPACING}
-                  width="16"
-                  height="6"
-                  fill="#64748b"
-                />
-              );
-            })()}
+            ) : (
+              /* Normal Whole Measure Rest (Simplified master rhythm chart: no note is synthesized across the barline) */
+              <rect
+                x={barX + BAR_WIDTH / 2 - 8}
+                y={staffTop + LINE_SPACING}
+                width="16"
+                height="6"
+                fill="#64748b"
+              />
+            )}
 
             {/* Left Barline (Start Repeat 𝄆) */}
             {m.leftBarline === 'start' && (
