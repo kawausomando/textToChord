@@ -311,14 +311,16 @@ export function generateAdvancedMusicXML(chart: MasterChart): string {
   return xmlHeader + xmlBody + xmlFooter;
 }
 
-export function downloadAdvancedMusicXML(chart: MasterChart, filename = 'master-rhythm-chart.musicxml') {
+export function downloadAdvancedMusicXML(chart: MasterChart, filename?: string) {
+  const safeTitle = (chart.title || 'master-rhythm-chart').replace(/[^\w\s\u3000-\u30ff\u4e00-\u9faf-]/g, '').trim().replace(/\s+/g, '_');
+  const actualFilename = filename || `${safeTitle || 'master-rhythm-chart'}.musicxml`;
   const xmlContent = generateAdvancedMusicXML(chart);
   const blob = new Blob([xmlContent], { type: 'application/vnd.recordare.musicxml+xml' });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = actualFilename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -111,19 +111,26 @@ function extractBarsFromLine(line: string): { text: string; leftDelim: string; r
 }
 
 /**
- * Extracts metadata (Key, BPM, Time Signature) from chart DSL headers.
+ * Extracts metadata (Title, Key, BPM, Time Signature) from chart DSL headers.
  */
 export function extractMetadataFromDsl(input: string): {
+  title?: string;
   key?: string;
   bpm?: number;
   timeSignature?: [number, number];
 } {
-  const result: { key?: string; bpm?: number; timeSignature?: [number, number] } = {};
+  const result: { title?: string; key?: string; bpm?: number; timeSignature?: [number, number] } = {};
   const lines = input.split('\n');
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+
+    const titleMatch = trimmed.match(/^(?:title|タイトル|曲名)\s*[:：]\s*(.+)$/i);
+    if (titleMatch) {
+      result.title = titleMatch[1].trim();
+      continue;
+    }
 
     const keyMatch = trimmed.match(/^(?:key|キー)\s*[:：]\s*(.+)$/i);
     if (keyMatch) {
@@ -148,20 +155,30 @@ export function extractMetadataFromDsl(input: string): {
 }
 
 /**
- * Updates or adds Key, BPM, and Time Signature headers in the DSL string.
+ * Updates or adds Title, Key, BPM, and Time Signature headers in the DSL string.
  */
 export function updateMetadataInDsl(
   dsl: string,
-  updates: { key?: string; bpm?: number; timeSignature?: [number, number] }
+  updates: { title?: string; key?: string; bpm?: number; timeSignature?: [number, number] }
 ): string {
   const lines = dsl.split('\n');
+
+  if (updates.title !== undefined) {
+    const titleIdx = lines.findIndex((l) => /^(?:title|タイトル|曲名)\s*[:：]/i.test(l.trim()));
+    if (titleIdx !== -1) {
+      lines[titleIdx] = `Title: ${updates.title}`;
+    } else {
+      lines.unshift(`Title: ${updates.title}`);
+    }
+  }
 
   if (updates.key !== undefined) {
     const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
     if (keyIdx !== -1) {
       lines[keyIdx] = `Key: ${updates.key}`;
     } else {
-      lines.unshift(`Key: ${updates.key}`);
+      const titleIdx = lines.findIndex((l) => /^(?:title|タイトル|曲名)\s*[:：]/i.test(l.trim()));
+      lines.splice(titleIdx !== -1 ? titleIdx + 1 : 0, 0, `Key: ${updates.key}`);
     }
   }
 
@@ -171,7 +188,9 @@ export function updateMetadataInDsl(
       lines[bpmIdx] = `BPM: ${updates.bpm}`;
     } else {
       const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
-      lines.splice(keyIdx !== -1 ? keyIdx + 1 : 0, 0, `BPM: ${updates.bpm}`);
+      const titleIdx = lines.findIndex((l) => /^(?:title|タイトル|曲名)\s*[:：]/i.test(l.trim()));
+      const insertIdx = keyIdx !== -1 ? keyIdx + 1 : titleIdx !== -1 ? titleIdx + 1 : 0;
+      lines.splice(insertIdx, 0, `BPM: ${updates.bpm}`);
     }
   }
 
@@ -183,7 +202,8 @@ export function updateMetadataInDsl(
     } else {
       const bpmIdx = lines.findIndex((l) => /^bpm\s*[:：]/i.test(l.trim()));
       const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
-      const insertIdx = bpmIdx !== -1 ? bpmIdx + 1 : keyIdx !== -1 ? keyIdx + 1 : 0;
+      const titleIdx = lines.findIndex((l) => /^(?:title|タイトル|曲名)\s*[:：]/i.test(l.trim()));
+      const insertIdx = bpmIdx !== -1 ? bpmIdx + 1 : keyIdx !== -1 ? keyIdx + 1 : titleIdx !== -1 ? titleIdx + 1 : 0;
       lines.splice(insertIdx, 0, timeStr);
     }
   }
@@ -197,7 +217,7 @@ export function updateMetadataInDsl(
 export function parseMasterChartText(
   input: string,
   chartTitle = 'Lead Sheet',
-  defaults?: { bpm?: number; keySignature?: string; timeSignature?: [number, number] }
+  defaults?: { title?: string; bpm?: number; keySignature?: string; timeSignature?: [number, number] }
 ): MasterChart {
   const measures: Measure[] = [];
   let currentMeasureNum = 1;
@@ -207,6 +227,7 @@ export function parseMasterChartText(
   let pendingSegno = false;
   let pendingPageBreak = false;
 
+  let parsedTitle = defaults?.title || chartTitle;
   let parsedKey = defaults?.keySignature;
   let parsedBpm = defaults?.bpm;
   let parsedTimeSig = defaults?.timeSignature;
@@ -219,7 +240,13 @@ export function parseMasterChartText(
       continue;
     }
 
-    // Key / BPM / Time headers
+    // Title / Key / BPM / Time headers
+    const titleMatch = rawLine.match(/^(?:title|タイトル|曲名)\s*[:：]\s*(.+)$/i);
+    if (titleMatch) {
+      parsedTitle = titleMatch[1].trim();
+      continue;
+    }
+
     const keyMatch = rawLine.match(/^(?:key|キー)\s*[:：]\s*(.+)$/i);
     if (keyMatch) {
       parsedKey = keyMatch[1].trim();
@@ -405,7 +432,7 @@ export function parseMasterChartText(
   }
 
   return {
-    title: chartTitle,
+    title: parsedTitle || chartTitle,
     bpm: parsedBpm ?? 125,
     keySignature: parsedKey ?? 'E♭m',
     timeSignature: parsedTimeSig ?? [4, 4],

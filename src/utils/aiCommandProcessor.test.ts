@@ -297,6 +297,22 @@ function runTests() {
     reParsed.keySignature === 'F♯m' && reParsed.bpm === 96 && reParsed.timeSignature[0] === 6 && reParsed.timeSignature[1] === 8
   );
 
+  // Test 24: Title metadata parsing
+  const titleDsl = `Title: 夜に駆ける\nKey: E♭m\nBPM: 130\nTime: 4/4\n| E♭m |`;
+  const titleChart = parseMasterChartText(titleDsl);
+  assert(
+    'Title metadata parsing: parses Title="夜に駆ける" correctly from DSL',
+    titleChart.title === '夜に駆ける'
+  );
+
+  // Test 25: updateMetadataInDsl for title
+  const updatedTitleDsl = updateMetadataInDsl(titleDsl, { title: 'アイドル' });
+  const reParsedTitle = parseMasterChartText(updatedTitleDsl);
+  assert(
+    'updateMetadataInDsl: updates Title to "アイドル"',
+    reParsedTitle.title === 'アイドル' && updatedTitleDsl.includes('Title: アイドル')
+  );
+
   console.log(`\nTests completed: ${passCount} / ${totalTests} passed.`);
   if (passCount !== totalTests) {
     throw new Error(`Test failure: only ${passCount}/${totalTests} passed.`);

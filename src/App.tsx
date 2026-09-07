@@ -7,16 +7,19 @@ import { MasterChartSpreadView } from './components/MasterChartSpreadView';
 import { KickStepSequencer } from './components/KickStepSequencer';
 import { NaturalLanguageBar } from './components/NaturalLanguageBar';
 import { ApiKeyModal } from './components/ApiKeyModal';
+import { SavedSongsModal } from './components/SavedSongsModal';
 import { convertRoughText, DEFAULT_OPTIONS } from './utils/converter';
 import type { ConverterOptions } from './utils/converter';
 import { parseMasterChartText, updateMeasureKickInDsl, extractMetadataFromDsl, updateMetadataInDsl } from './utils/chartParser';
 import { processNaturalLanguageCommand } from './utils/aiCommandProcessor';
 import { executeLlmChartCommand } from './utils/llmService';
+import { loadSavedSongs, saveSongToStorage, deleteSavedSong, getLastActiveSongId } from './utils/songStorage';
+import type { SavedSong } from './utils/songStorage';
 import type { MasterChart } from './types/chart';
 import { audioPlayer } from './utils/audio';
 import { downloadMusicXML } from './utils/musicxml';
 import { downloadAdvancedMusicXML } from './utils/musicxmlAdvanced';
-import { Copy, Check, Sparkles, FileText, Download, Layers, Music2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Copy, Check, Sparkles, FileText, Download, Layers, Music2, PanelLeftClose, PanelLeftOpen, Save, FolderOpen } from 'lucide-react';
 
 const COMMON_KEYS = [
   'C', 'G', 'D', 'A', 'E', 'B', 'F♯',
@@ -29,7 +32,8 @@ const COMMON_TIME_SIGNATURES = [
   '4/4', '3/4', '2/4', '6/8', '12/8', '5/4', '7/8'
 ];
 
-const SOP_DEFAULT_DSL = `Key: E♭m
+const SOP_DEFAULT_DSL = `Title: 夜に駆ける
+Key: E♭m
 BPM: 125
 Time: 4/4
 
@@ -65,8 +69,15 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeBarIndex, setActiveBarIndex] = useState<number>(-1);
 
-  // Metadata State (Key, BPM, 拍子)
+  // Saved Songs State
+  const [savedSongs, setSavedSongs] = useState<SavedSong[]>(() => loadSavedSongs());
+  const [currentSongId, setCurrentSongId] = useState<string | null>(() => getLastActiveSongId());
+  const [isSavedSongsOpen, setIsSavedSongsOpen] = useState<boolean>(false);
+  const [isSaveSuccess, setIsSaveSuccess] = useState<boolean>(false);
+
+  // Metadata State (Title, Key, BPM, 拍子)
   const initialMeta = useMemo(() => extractMetadataFromDsl(SOP_DEFAULT_DSL), []);
+  const [songTitle, setSongTitle] = useState<string>(initialMeta.title || '夜に駆ける');
   const [keySignature, setKeySignature] = useState<string>(initialMeta.key || 'E♭m');
   const [bpm, setBpm] = useState<number>(initialMeta.bpm || 125);
   const [timeSignature, setTimeSignature] = useState<string>(
@@ -94,6 +105,9 @@ export function App() {
   // Two-way sync: Update metadata states when chartDsl headers change
   useEffect(() => {
     const meta = extractMetadataFromDsl(chartDsl);
+    if (meta.title !== undefined) {
+      setSongTitle((prev) => (prev !== meta.title ? meta.title! : prev));
+    }
     if (meta.key !== undefined) {
       setKeySignature((prev) => (prev !== meta.key ? meta.key! : prev));
     }
@@ -107,6 +121,11 @@ export function App() {
   }, [chartDsl]);
 
   // Two-way sync handlers: update state and DSL text
+  const handleUpdateTitle = (newTitle: string) => {
+    setSongTitle(newTitle);
+    setChartDsl((prev) => updateMetadataInDsl(prev, { title: newTitle }));
+  };
+
   const handleUpdateKey = (newKey: string) => {
     setKeySignature(newKey);
     setChartDsl((prev) => updateMetadataInDsl(prev, { key: newKey }));
@@ -124,6 +143,53 @@ export function App() {
     const beats = parseInt(parts[0], 10) || 4;
     const beatType = parseInt(parts[1], 10) || 4;
     setChartDsl((prev) => updateMetadataInDsl(prev, { timeSignature: [beats, beatType] }));
+  };
+
+  // Song Save / Load / New handlers
+  const handleSaveSong = () => {
+    const saved = saveSongToStorage({
+      id: currentSongId,
+      title: songTitle,
+      dsl: chartDsl,
+      key: keySignature,
+      bpm,
+      timeSignature,
+    });
+    setCurrentSongId(saved.id);
+    setSavedSongs(loadSavedSongs());
+    setIsSaveSuccess(true);
+    setTimeout(() => setIsSaveSuccess(false), 2500);
+  };
+
+  const handleSelectSavedSong = (song: SavedSong) => {
+    setCurrentSongId(song.id);
+    setSongTitle(song.title);
+    setKeySignature(song.key);
+    setBpm(song.bpm);
+    setTimeSignature(song.timeSignature);
+    setChartDsl(song.dsl);
+  };
+
+  const handleDeleteSavedSong = (id: string) => {
+    const remaining = deleteSavedSong(id);
+    setSavedSongs(remaining);
+    if (currentSongId === id) {
+      setCurrentSongId(null);
+    }
+  };
+
+  const handleNewSong = () => {
+    const newTitle = '新規楽曲';
+    const newKey = 'C';
+    const newBpm = 120;
+    const newTs = '4/4';
+    const blankDsl = `Title: ${newTitle}\nKey: ${newKey}\nBPM: ${newBpm}\nTime: ${newTs}\n\n[A]\n| C | G | Am | F |\n| C | G | Am | F |`;
+    setCurrentSongId(null);
+    setSongTitle(newTitle);
+    setKeySignature(newKey);
+    setBpm(newBpm);
+    setTimeSignature(newTs);
+    setChartDsl(blankDsl);
   };
 
   // LLM State
@@ -160,12 +226,13 @@ export function App() {
     const parts = timeSignature.split('/');
     const beats = parseInt(parts[0], 10) || 4;
     const beatType = parseInt(parts[1], 10) || 4;
-    return parseMasterChartText(chartDsl, 'MASTER RHYTHM LEAD SHEET', {
+    return parseMasterChartText(chartDsl, songTitle || 'MASTER RHYTHM LEAD SHEET', {
+      title: songTitle,
       keySignature,
       bpm,
       timeSignature: [beats, beatType],
     });
-  }, [chartDsl, keySignature, bpm, timeSignature]);
+  }, [chartDsl, songTitle, keySignature, bpm, timeSignature]);
 
   const editingKickMeasure = useMemo(() => {
     if (!editingKickMeasureId) return null;
@@ -318,10 +385,33 @@ export function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Workbench DSL Toolbar & Controls */}
             <div className="glass-panel" style={{ padding: '1rem 1.2rem', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              {/* Row 1: Song Metadata Controls (Key, BPM, 拍子) & Action Buttons */}
+              {/* Row 1: Song Metadata Controls (Title, Key, BPM, 拍子) & Action Buttons */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
                 {/* Metadata Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  {/* Title (曲名) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>曲名:</span>
+                    <input
+                      type="text"
+                      value={songTitle}
+                      onChange={(e) => handleUpdateTitle(e.target.value)}
+                      placeholder="楽曲タイトル..."
+                      style={{
+                        width: '150px',
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '0.25rem 0.5rem',
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        outline: 'none',
+                      }}
+                      title="楽曲タイトル (スコアヘッダー・MusicXMLに反映)"
+                    />
+                  </div>
+
                   {/* Key */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Key:</span>
@@ -403,7 +493,27 @@ export function App() {
                 </div>
 
                 {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={handleSaveSong}
+                    className={isSaveSuccess ? 'btn btn-accent' : 'btn btn-primary'}
+                    style={{ fontSize: '0.85rem' }}
+                    title="ブラウザに現在の楽曲・設定を保存"
+                  >
+                    {isSaveSuccess ? <Check size={16} /> : <Save size={16} />}
+                    {isSaveSuccess ? '保存完了！' : '保存'}
+                  </button>
+
+                  <button
+                    onClick={() => setIsSavedSongsOpen(true)}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.85rem' }}
+                    title="保存した楽曲の一覧・読み込み・新規作成"
+                  >
+                    <FolderOpen size={16} />
+                    保存した曲 {savedSongs.length > 0 && `(${savedSongs.length})`}
+                  </button>
+
                   <button
                     onClick={toggleDslHidden}
                     className={isDslHidden ? 'btn btn-primary' : 'btn btn-secondary'}
@@ -674,6 +784,17 @@ export function App() {
         apiKey={apiKey}
         selectedModel={selectedModel}
         onSaveApiKey={handleSaveApiKey}
+      />
+
+      {/* Saved Songs Management Modal */}
+      <SavedSongsModal
+        isOpen={isSavedSongsOpen}
+        onClose={() => setIsSavedSongsOpen(false)}
+        songs={savedSongs}
+        currentSongId={currentSongId}
+        onSelectSong={handleSelectSavedSong}
+        onDeleteSong={handleDeleteSavedSong}
+        onNewSong={handleNewSong}
       />
     </div>
   );
