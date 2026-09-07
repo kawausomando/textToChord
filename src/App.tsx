@@ -13,6 +13,7 @@ import type { ConverterOptions } from './utils/converter';
 import { parseMasterChartText, updateMeasureKickInDsl, extractMetadataFromDsl, updateMetadataInDsl } from './utils/chartParser';
 import { processNaturalLanguageCommand } from './utils/aiCommandProcessor';
 import { executeLlmChartCommand } from './utils/llmService';
+import type { ChatTurn } from './utils/llmService';
 import { loadSavedSongs, saveSongToStorage, deleteSavedSong, getLastActiveSongId } from './utils/songStorage';
 import type { SavedSong } from './utils/songStorage';
 import type { MasterChart } from './types/chart';
@@ -178,6 +179,31 @@ export function App() {
     }
   };
 
+  // Session Chat Turns State (survives tab reload)
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>(() => {
+    try {
+      const raw = sessionStorage.getItem('textToChord_chat_session');
+      return raw ? (JSON.parse(raw) as ChatTurn[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleClearChat = () => {
+    setChatTurns([]);
+    try {
+      sessionStorage.removeItem('textToChord_chat_session');
+    } catch {
+      // ignore
+    }
+    setNlFeedback('ℹ️ 会話履歴をリセットしました。');
+  };
+
+  const handleRollbackChat = (targetDsl: string, turnInstruction: string) => {
+    setChartDsl(targetDsl);
+    setNlFeedback(`ℹ️ 「${turnInstruction}」の実行時点の譜面に復元しました。`);
+  };
+
   const handleNewSong = () => {
     const newTitle = '新規楽曲';
     const newKey = 'C';
@@ -190,6 +216,7 @@ export function App() {
     setBpm(newBpm);
     setTimeSignature(newTs);
     setChartDsl(blankDsl);
+    handleClearChat();
   };
 
   // LLM State
@@ -323,15 +350,32 @@ export function App() {
     setChartDsl(nextDsl);
   };
 
-  // Natural Language Command Execution (LLM with local fallback)
+  // Natural Language Command Execution (LLM with local fallback and multi-turn session memory)
   const handleExecuteNlCommand = async (instruction: string) => {
     if (apiKey.trim()) {
       setIsLlmLoading(true);
       try {
-        const result = await executeLlmChartCommand(chartDsl, instruction, apiKey.trim(), selectedModel);
+        const result = await executeLlmChartCommand(
+          chartDsl,
+          instruction,
+          apiKey.trim(),
+          selectedModel,
+          chatTurns
+        );
         setNlFeedback(result.explanation);
         if (result.success) {
           setChartDsl(result.newDsl);
+          if (result.newTurn) {
+            setChatTurns((prev) => {
+              const next = [...prev, result.newTurn!];
+              try {
+                sessionStorage.setItem('textToChord_chat_session', JSON.stringify(next));
+              } catch {
+                // ignore
+              }
+              return next;
+            });
+          }
         }
       } finally {
         setIsLlmLoading(false);
@@ -343,6 +387,23 @@ export function App() {
       setNlFeedback(result.explanation + (result.success ? hint : ''));
       if (result.success) {
         setChartDsl(result.newDsl);
+        const localTurn: ChatTurn = {
+          id: `turn_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          instruction,
+          explanation: result.explanation + hint,
+          rawModelJson: JSON.stringify({ newDsl: result.newDsl, explanation: result.explanation }),
+          dslSnapshot: result.newDsl,
+          timestamp: Date.now(),
+        };
+        setChatTurns((prev) => {
+          const next = [...prev, localTurn];
+          try {
+            sessionStorage.setItem('textToChord_chat_session', JSON.stringify(next));
+          } catch {
+            // ignore
+          }
+          return next;
+        });
       }
     }
   };
@@ -639,6 +700,9 @@ export function App() {
                   hasApiKey={Boolean(apiKey.trim())}
                   onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
                   isLoading={isLlmLoading}
+                  chatTurns={chatTurns}
+                  onClearChat={handleClearChat}
+                  onRollback={handleRollbackChat}
                 />
 
                 <MasterChartSpreadView

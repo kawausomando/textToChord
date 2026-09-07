@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, CornerDownLeft, Key, Bot, Loader2 } from 'lucide-react';
+import {
+  Sparkles,
+  ArrowRight,
+  CornerDownLeft,
+  Key,
+  Bot,
+  Loader2,
+  MessageSquare,
+  Trash2,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  User,
+} from 'lucide-react';
+import type { ChatTurn } from '../utils/llmService';
 
 interface NaturalLanguageBarProps {
   onExecuteCommand: (instruction: string) => void;
@@ -7,6 +21,9 @@ interface NaturalLanguageBarProps {
   hasApiKey: boolean;
   onOpenApiKeyModal: () => void;
   isLoading: boolean;
+  chatTurns?: ChatTurn[];
+  onClearChat?: () => void;
+  onRollback?: (dsl: string, instruction: string) => void;
 }
 
 const SAMPLE_COMMANDS = [
@@ -24,8 +41,12 @@ export const NaturalLanguageBar: React.FC<NaturalLanguageBarProps> = ({
   hasApiKey,
   onOpenApiKeyModal,
   isLoading,
+  chatTurns = [],
+  onClearChat,
+  onRollback,
 }) => {
   const [instruction, setInstruction] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,21 +131,75 @@ export const NaturalLanguageBar: React.FC<NaturalLanguageBarProps> = ({
           )}
         </div>
 
-        {/* API Key Config Button */}
-        <button
-          onClick={onOpenApiKeyModal}
-          className="btn btn-secondary"
-          style={{
-            fontSize: '0.78rem',
-            padding: '0.3rem 0.7rem',
-            color: hasApiKey ? 'var(--text-main)' : 'var(--accent-cyan)',
-            borderColor: hasApiKey ? 'var(--border-color)' : 'var(--accent-cyan)',
-          }}
-          title="Gemini APIキーを設定して高度なLLM解釈を有効化"
-        >
-          <Key size={13} />
-          {hasApiKey ? 'APIキー設定済み' : 'Gemini APIキーを設定 (無料)'}
-        </button>
+        {/* Right Header Controls: Chat History Toggle, Reset Button, and API Key Config */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {chatTurns.length > 0 && (
+            <>
+              {/* Toggle Chat History Timeline */}
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen((prev) => !prev)}
+                className="btn btn-secondary"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '0.3rem 0.65rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  color: isHistoryOpen ? '#ffffff' : '#a5b4fc',
+                  background: isHistoryOpen ? 'rgba(99, 102, 241, 0.3)' : undefined,
+                  borderColor: 'rgba(165, 180, 252, 0.4)',
+                }}
+                title="セッション内の会話履歴を表示 / 折りたたむ"
+              >
+                <MessageSquare size={13} />
+                <span>会話履歴 ({chatTurns.length})</span>
+                {isHistoryOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+
+              {/* Reset Session Conversation */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('このセッションの会話履歴をリセットしますか？')) {
+                    onClearChat?.();
+                    setIsHistoryOpen(false);
+                  }
+                }}
+                className="btn btn-secondary"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '0.3rem 0.6rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: '#fda4af',
+                  borderColor: 'rgba(244, 63, 94, 0.3)',
+                }}
+                title="セッション会話履歴をクリアして初期化"
+              >
+                <Trash2 size={13} />
+                <span>会話をリセット</span>
+              </button>
+            </>
+          )}
+
+          {/* API Key Config Button */}
+          <button
+            onClick={onOpenApiKeyModal}
+            className="btn btn-secondary"
+            style={{
+              fontSize: '0.78rem',
+              padding: '0.3rem 0.7rem',
+              color: hasApiKey ? 'var(--text-main)' : 'var(--accent-cyan)',
+              borderColor: hasApiKey ? 'var(--border-color)' : 'var(--accent-cyan)',
+            }}
+            title="Gemini APIキーを設定して高度なLLM解釈を有効化"
+          >
+            <Key size={13} />
+            {hasApiKey ? 'APIキー設定済み' : 'Gemini APIキーを設定 (無料)'}
+          </button>
+        </div>
       </div>
 
       {/* Input Form */}
@@ -217,6 +292,153 @@ export const NaturalLanguageBar: React.FC<NaturalLanguageBarProps> = ({
           }}
         >
           {lastFeedback}
+        </div>
+      )}
+
+      {/* Session Chat History Drawer */}
+      {isHistoryOpen && chatTurns.length > 0 && (
+        <div
+          className="animate-fade-in"
+          style={{
+            marginTop: '0.4rem',
+            padding: '0.8rem',
+            background: 'rgba(10, 15, 30, 0.85)',
+            border: '1px solid rgba(99, 102, 241, 0.35)',
+            borderRadius: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+            maxHeight: '280px',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              paddingBottom: '0.4rem',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: '#c7d2fe',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <MessageSquare size={13} />
+              セッション会話タイムライン ({chatTurns.length}往復の指示と変更)
+            </span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+              過去の任意の時点の譜面に復元できます
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+            {chatTurns.map((turn, idx) => (
+              <div
+                key={turn.id || idx}
+                style={{
+                  background: 'rgba(30, 41, 59, 0.55)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '8px',
+                  padding: '0.6rem 0.8rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.4rem',
+                }}
+              >
+                {/* Turn Header */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.72rem',
+                    color: 'var(--text-dim)',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, color: '#93c5fd' }}>ターン #{idx + 1}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <span>
+                      {new Date(turn.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                    {onRollback && (
+                      <button
+                        type="button"
+                        onClick={() => onRollback(turn.dslSnapshot, turn.instruction)}
+                        className="btn btn-secondary"
+                        style={{
+                          fontSize: '0.7rem',
+                          padding: '0.15rem 0.45rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          color: '#38bdf8',
+                          borderColor: 'rgba(56, 189, 248, 0.3)',
+                        }}
+                        title="このターン完了時点のDSL譜面に巻き戻します"
+                      >
+                        <RotateCcw size={10} />
+                        <span>この時点に戻す</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* User Instruction Bubble */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                  <div
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'rgba(99, 102, 241, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: '2px',
+                    }}
+                  >
+                    <User size={11} color="#a5b4fc" />
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: '#f8fafc', fontWeight: 600 }}>
+                    {turn.instruction}
+                  </div>
+                </div>
+
+                {/* AI Explanation Bubble */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', marginLeft: '1.2rem' }}>
+                  <div
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'rgba(16, 185, 129, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: '2px',
+                    }}
+                  >
+                    <Bot size={11} color="#34d399" />
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>{turn.explanation}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

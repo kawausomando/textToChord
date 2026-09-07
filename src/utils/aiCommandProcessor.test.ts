@@ -1,5 +1,7 @@
 import { processNaturalLanguageCommand } from './aiCommandProcessor';
 import { parseMasterChartText, updateMetadataInDsl } from './chartParser';
+import { buildLlmContents, parseLlmJsonResponse } from './llmService';
+import type { ChatTurn } from './llmService';
 
 function runTests() {
   console.log('--- Testing Natural Language AI Command Processor ---');
@@ -311,6 +313,59 @@ function runTests() {
   assert(
     'updateMetadataInDsl: updates Title to "アイドル"',
     reParsedTitle.title === 'アイドル' && updatedTitleDsl.includes('Title: アイドル')
+  );
+
+  // Test 26: LLM Multi-Turn Contents generation - single turn
+  const singleContents = buildLlmContents('| C | G |', '4小節目を追加して', []);
+  assert(
+    'buildLlmContents: single turn has 1 user role item',
+    singleContents.length === 1 &&
+      singleContents[0].role === 'user' &&
+      singleContents[0].parts[0].text.includes('4小節目を追加して')
+  );
+
+  // Test 27: LLM Multi-Turn Contents generation - multi-turn history
+  const mockHistory: ChatTurn[] = [
+    {
+      id: 'turn_1',
+      instruction: '4小節目のコードをFm7に変えて',
+      explanation: '4小節目のコードをFm7に変更しました。',
+      rawModelJson: '{"newDsl":"| C | G | Am | Fm7 |","explanation":"4小節目のコードをFm7に変更しました。"}',
+      dslSnapshot: '| C | G | Am | Fm7 |',
+      timestamp: Date.now() - 10000,
+    },
+    {
+      id: 'turn_2',
+      instruction: 'それを3小節目にも適用して',
+      explanation: '3小節目のコードもFm7に変更しました。',
+      rawModelJson: '{"newDsl":"| C | G | Fm7 | Fm7 |","explanation":"3小節目のコードもFm7に変更しました。"}',
+      dslSnapshot: '| C | G | Fm7 | Fm7 |',
+      timestamp: Date.now() - 5000,
+    },
+  ];
+
+  const multiContents = buildLlmContents('| C | G | Fm7 | Fm7 |', '1小節目を頭キメにして', mockHistory);
+  assert(
+    'buildLlmContents: multi-turn alternates user -> model -> user -> model -> user (5 items)',
+    multiContents.length === 5 &&
+      multiContents[0].role === 'user' &&
+      multiContents[1].role === 'model' &&
+      multiContents[2].role === 'user' &&
+      multiContents[3].role === 'model' &&
+      multiContents[4].role === 'user' &&
+      multiContents[4].parts[0].text.includes('1小節目を頭キメにして') &&
+      multiContents[4].parts[0].text.includes('これまでの会話履歴')
+  );
+
+  // Test 28: LLM JSON parser handles raw and markdown codeblock JSON
+  const rawJsonRes = parseLlmJsonResponse('{"newDsl":"| C |","explanation":"Done"}');
+  const mdJsonRes = parseLlmJsonResponse('```json\n{"newDsl":"| D |","explanation":"Updated"}\n```');
+  assert(
+    'parseLlmJsonResponse: correctly parses raw and markdown-wrapped JSON',
+    rawJsonRes.newDsl === '| C |' &&
+      rawJsonRes.explanation === 'Done' &&
+      mdJsonRes.newDsl === '| D |' &&
+      mdJsonRes.explanation === 'Updated'
   );
 
   console.log(`\nTests completed: ${passCount} / ${totalTests} passed.`);

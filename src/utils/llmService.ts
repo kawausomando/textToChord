@@ -1,7 +1,18 @@
+export interface ChatTurn {
+  id: string;
+  instruction: string;
+  explanation: string;
+  rawModelJson?: string;
+  dslSnapshot: string;
+  timestamp: number;
+}
+
 export interface LlmCommandResult {
   success: boolean;
   newDsl: string;
   explanation: string;
+  rawModelJson?: string;
+  newTurn?: ChatTurn;
 }
 
 export const MASTER_CHART_DSL_SYSTEM_PROMPT = `あなたはコマーシャル・クオリティのマスターリズム譜（Master Rhythm Chart）を制作するエキスパートアレンジャーAIです。
@@ -91,13 +102,77 @@ export function parseLlmJsonResponse(text: string): { newDsl: string; explanatio
 }
 
 /**
+ * Build Gemini API multi-turn contents array with alternating user and model roles.
+ */
+export function buildLlmContents(
+  currentDsl: string,
+  instruction: string,
+  history: ChatTurn[] = []
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
+  // Limit past history to recent turns (e.g. up to 6 turns) to keep context fast and focused
+  const recentHistory = history.slice(-6);
+
+  recentHistory.forEach((turn, index) => {
+    // User message for past turn
+    const userText =
+      index === 0
+        ? `マスターリズム譜の初期状態に対して以下の指示を実行してください:\n指示: 「${turn.instruction}」`
+        : `前回の更新に続き、以下の指示を実行してください:\n指示: 「${turn.instruction}」`;
+
+    contents.push({
+      role: 'user',
+      parts: [{ text: userText }],
+    });
+
+    // Model message for past turn
+    const modelText =
+      turn.rawModelJson ||
+      JSON.stringify({
+        newDsl: turn.dslSnapshot,
+        explanation: turn.explanation,
+      });
+
+    contents.push({
+      role: 'model',
+      parts: [{ text: modelText }],
+    });
+  });
+
+  // Latest user turn with current ground-truth DSL and prompt
+  const currentPrompt = `現在のマスターリズム譜DSL:
+\`\`\`
+${currentDsl}
+\`\`\`
+
+ユーザーの指示:
+「${instruction}」
+
+${
+  recentHistory.length > 0
+    ? 'これまでの会話履歴（変更の文脈・意図・「それ」「さっきの」等の参照）を踏まえ、上記ルールに従って指示を反映した新しいDSL全体と変更内容の解説をJSONで出力してください。'
+    : '上記ルールに従い、指示を反映した新しいDSL全体と変更内容の解説をJSONで出力してください。'
+}`;
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: currentPrompt }],
+  });
+
+  return contents;
+}
+
+/**
  * Call Google Gemini API to intelligently update the Master Rhythm Chart DSL.
+ * Supports multi-turn conversation history within the same session.
  */
 export async function executeLlmChartCommand(
   currentDsl: string,
   instruction: string,
   apiKey: string,
-  model = 'gemini-3.6-flash'
+  model = 'gemini-3.6-flash',
+  history: ChatTurn[] = []
 ): Promise<LlmCommandResult> {
   if (!apiKey) {
     return {
@@ -108,16 +183,7 @@ export async function executeLlmChartCommand(
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const promptMessage = `現在のマスターリズム譜DSL:
-\`\`\`
-${currentDsl}
-\`\`\`
-
-ユーザーの指示:
-「${instruction}」
-
-上記ルールに従い、指示を反映した新しいDSL全体と変更内容の解説をJSONで出力してください。`;
+  const contents = buildLlmContents(currentDsl, instruction, history);
 
   try {
     const response = await fetch(endpoint, {
@@ -129,11 +195,7 @@ ${currentDsl}
         systemInstruction: {
           parts: [{ text: MASTER_CHART_DSL_SYSTEM_PROMPT }],
         },
-        contents: [
-          {
-            parts: [{ text: promptMessage }],
-          },
-        ],
+        contents,
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.2,
@@ -163,10 +225,21 @@ ${currentDsl}
     }
 
     const parsed = parseLlmJsonResponse(candidateText);
+    const newTurn: ChatTurn = {
+      id: `turn_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      instruction,
+      explanation: parsed.explanation,
+      rawModelJson: candidateText,
+      dslSnapshot: parsed.newDsl,
+      timestamp: Date.now(),
+    };
+
     return {
       success: true,
       newDsl: parsed.newDsl,
       explanation: parsed.explanation,
+      rawModelJson: candidateText,
+      newTurn,
     };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
