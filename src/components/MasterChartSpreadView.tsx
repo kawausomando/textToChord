@@ -585,19 +585,21 @@ function renderSystem(
                         // Tie curves:
                         // 1. Intra-measure beat-crossing tie (connects to next note in allNotes)
                         // 2. Barline anticipation tie (step 14 or 15 with tie curving across barline)
-                        // Standard music notation (Gould, Behind Bars): ties on notes on middle line
-                        // are positioned in Space 3 underneath the noteheads (between Line 3 and Line 4).
+                        // Positioned in Space 4 (below Line 4 at noteY + 10.5) so it is completely
+                        // clear of the slash noteheads (which reach noteY + 8.75) and never occluded by subsequent notes.
                         let tieCurve: React.ReactNode = null;
                         if (note.isTiedToNext) {
                           const isAnticipationEnd = note.step >= 14;
-                          const startX = stepX + 2;
-                          const startY = noteY + 4;
-                          const tieMidY = noteY + 11;
+                          const startX = stepX + 1;
+                          const startY = noteY + 10.5;
 
                           if (isAnticipationEnd) {
                             // Crosses barline into next measure as an open-ended tie (no destination note rendered)
                             const tieEndX = Math.min(SVG_WIDTH - 2, barX + BAR_WIDTH + 14);
                             const tieMidX = (startX + tieEndX) / 2;
+                            const dx = tieEndX - startX;
+                            const curveDepth = Math.min(4.5, Math.max(3, dx * 0.1));
+                            const tieMidY = startY + curveDepth * 2;
                             tieCurve = (
                               <path
                                 d={`M ${startX} ${startY} Q ${tieMidX} ${tieMidY} ${tieEndX} ${startY}`}
@@ -610,8 +612,11 @@ function renderSystem(
                             const nextNote = allNotes[nIdx + 1];
                             if (nextNote) {
                               const destX = getStepX(nextNote.step);
-                              const endX = destX - 2;
+                              const endX = destX - 1;
                               const tieMidX = (startX + endX) / 2;
+                              const dx = Math.abs(endX - startX);
+                              const curveDepth = Math.min(4.5, Math.max(2.5, dx * 0.15));
+                              const tieMidY = startY + curveDepth * 2;
                               tieCurve = (
                                 <path
                                   d={`M ${startX} ${startY} Q ${tieMidX} ${tieMidY} ${endX} ${startY}`}
