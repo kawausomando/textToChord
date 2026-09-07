@@ -415,18 +415,82 @@ function renderSystem(
 
                 {/* 16-Step Comping Kicks (Slash noteheads on 3rd staff space) */}
                 {(() => {
-                  const spanMap = new Map<number, number>();
-                  const activeSteps: number[] = [];
-                  m.kicks.forEach((act, s) => {
-                    if (act) activeSteps.push(s);
-                  });
-                  for (let i = 0; i < activeSteps.length; i++) {
-                    const cur = activeSteps[i];
-                    const next = i + 1 < activeSteps.length ? activeSteps[i + 1] : 16;
-                    spanMap.set(cur, next - cur);
+                  interface MeasureNote {
+                    step: number;
+                    span: number;
+                    isDotted: boolean;
+                    isUserKick: boolean;
+                    isTiedToNext: boolean;
+                    isTiedFromPrev: boolean;
                   }
 
-                  const getStemX = (step: number) => barX + 14 + (step * (BAR_WIDTH - 28)) / 16 + 5;
+                  const allNotes: MeasureNote[] = [];
+                  const userSteps: number[] = [];
+                  m.kicks.forEach((act, s) => {
+                    if (act) userSteps.push(s);
+                  });
+
+                  for (let i = 0; i < userSteps.length; i++) {
+                    const s = userSteps[i];
+                    const nextS = i + 1 < userSteps.length ? userSteps[i + 1] : 16;
+                    const targetSpan = nextS - s;
+
+                    const startBeat = Math.floor(s / 4);
+                    const beatEnd = startBeat * 4 + 3;
+                    const stepsInBeat = beatEnd - s + 1;
+
+                    // Off-beat note extending beyond current beat cannot have a dot crossing the beat boundary.
+                    // When an offbeat note has a dotted duration (targetSpan === 3 or 6) or an explicit tie (m.ties[s]),
+                    // and extends into the next beat (nextS < 16), split at beat boundary:
+                    // note in current beat + tied note at downbeat of next beat!
+                    const isOffBeat = s % 4 !== 0;
+                    const isDottedCandidate = targetSpan === 3 || targetSpan === 6;
+                    const hasExplicitTie = Boolean(m.ties && m.ties[s]);
+                    const crossesBeat = isOffBeat && (isDottedCandidate || hasExplicitTie) && targetSpan > stepsInBeat && nextS < 16;
+
+                    if (crossesBeat) {
+                      // Note in current beat (truncated to beatEnd, no dot crossing beat boundary)
+                      allNotes.push({
+                        step: s,
+                        span: stepsInBeat,
+                        isDotted: stepsInBeat === 3, // only dotted if it completely fits within beat
+                        isUserKick: true,
+                        isTiedToNext: true,
+                        isTiedFromPrev: false,
+                      });
+
+                      // Synthesized tied note in next beat:
+                      const nextBeatStep = (startBeat + 1) * 4;
+                      const remainingSpan = Math.min(4, targetSpan - stepsInBeat);
+                      allNotes.push({
+                        step: nextBeatStep,
+                        span: remainingSpan,
+                        isDotted: remainingSpan === 3,
+                        isUserKick: false,
+                        isTiedToNext: false,
+                        isTiedFromPrev: true,
+                      });
+                    } else {
+                      // Downbeat or note contained within beat
+                      const isDotted =
+                        (targetSpan === 3 && targetSpan <= stepsInBeat) ||
+                        (s % 4 === 0 && (targetSpan === 6 || targetSpan === 12));
+                      allNotes.push({
+                        step: s,
+                        span: targetSpan,
+                        isDotted,
+                        isUserKick: true,
+                        isTiedToNext: Boolean(m.ties && m.ties[s]),
+                        isTiedFromPrev: false,
+                      });
+                    }
+                  }
+
+                  // Sort notes by step
+                  allNotes.sort((a, b) => a.step - b.step);
+
+                  const getStepX = (step: number) => barX + 14 + (step * (BAR_WIDTH - 28)) / 16;
+                  const getStemX = (step: number) => getStepX(step) + 5;
                   const noteY = staffTop + LINE_SPACING * 2;
                   const stemTopY = noteY - 24;
 
@@ -434,39 +498,38 @@ function renderSystem(
                     <g>
                       {/* Strict 1-Beat Grouping Beams (Beams NEVER cross beats) */}
                       {[0, 1, 2, 3].map((b) => {
-                        const beatSteps = [b * 4, b * 4 + 1, b * 4 + 2, b * 4 + 3];
-                        const activeInBeat = beatSteps.filter((s) => m.kicks[s]);
-                        if (activeInBeat.length < 2) return null;
+                        const notesInBeat = allNotes.filter((n) => Math.floor(n.step / 4) === b);
+                        if (notesInBeat.length < 2) return null;
 
-                        const firstStep = activeInBeat[0];
-                        const lastStep = activeInBeat[activeInBeat.length - 1];
+                        const firstStep = notesInBeat[0].step;
+                        const lastStep = notesInBeat[notesInBeat.length - 1].step;
                         const primaryBeamY = stemTopY + 1.2;
                         const secondaryBeamY = stemTopY + 5.8;
 
-                        const is16thLevel = (s: number) => (s % 2 === 1) || (spanMap.get(s) === 1);
+                        const is16thLevel = (n: MeasureNote) => (n.step % 2 === 1) || (n.span === 1);
 
                         // Secondary beams for consecutive 16th notes
                         const secondaryBeams: Array<{ x1: number; x2: number }> = [];
-                        for (let i = 0; i < activeInBeat.length - 1; i++) {
-                          const sA = activeInBeat[i];
-                          const sB = activeInBeat[i + 1];
-                          if (is16thLevel(sA) && is16thLevel(sB) && sB - sA === 1) {
-                            secondaryBeams.push({ x1: getStemX(sA), x2: getStemX(sB) });
+                        for (let i = 0; i < notesInBeat.length - 1; i++) {
+                          const nA = notesInBeat[i];
+                          const nB = notesInBeat[i + 1];
+                          if (is16thLevel(nA) && is16thLevel(nB) && nB.step - nA.step === 1) {
+                            secondaryBeams.push({ x1: getStemX(nA.step), x2: getStemX(nB.step) });
                           }
                         }
 
                         // Fractional beamlets for isolated 16th notes in a beamed beat
-                        activeInBeat.forEach((s) => {
-                          if (s % 2 === 1) {
+                        notesInBeat.forEach((n) => {
+                          if (n.step % 2 === 1 || n.span === 1) {
                             const hasSec = secondaryBeams.some(
-                              (sb) => Math.abs(sb.x1 - getStemX(s)) < 0.1 || Math.abs(sb.x2 - getStemX(s)) < 0.1
+                              (sb) => Math.abs(sb.x1 - getStemX(n.step)) < 0.1 || Math.abs(sb.x2 - getStemX(n.step)) < 0.1
                             );
                             if (!hasSec) {
                               const beamletLen = 7;
-                              if (s > firstStep) {
-                                secondaryBeams.push({ x1: getStemX(s) - beamletLen, x2: getStemX(s) });
+                              if (n.step > firstStep) {
+                                secondaryBeams.push({ x1: getStemX(n.step) - beamletLen, x2: getStemX(n.step) });
                               } else {
-                                secondaryBeams.push({ x1: getStemX(s), x2: getStemX(s) + beamletLen });
+                                secondaryBeams.push({ x1: getStemX(n.step), x2: getStemX(n.step) + beamletLen });
                               }
                             }
                           }
@@ -502,36 +565,61 @@ function renderSystem(
                       })}
 
                       {/* Active Kick Noteheads, Stems, Flags, Dots, Ties */}
-                      {m.kicks.map((isActive, stepIdx) => {
-                        if (!isActive) return null;
-                        const stepX = barX + 14 + (stepIdx * (BAR_WIDTH - 28)) / 16;
-                        const stemX = stepX + 5;
-                        const isTied = m.ties && m.ties[stepIdx];
-
-                        const span = spanMap.get(stepIdx) || (16 - stepIdx);
-                        const isDotted = span === 3 || span === 6 || span === 12;
+                      {allNotes.map((note, nIdx) => {
+                        const stepX = getStepX(note.step);
+                        const stemX = getStemX(note.step);
 
                         // 1-Beat grouping check: if 2+ notes in beat, this note is beamed
-                        const b = Math.floor(stepIdx / 4);
-                        const activeInBeat = [b * 4, b * 4 + 1, b * 4 + 2, b * 4 + 3].filter((s) => m.kicks[s]);
-                        const isBeamed = activeInBeat.length >= 2;
+                        const b = Math.floor(note.step / 4);
+                        const notesInBeat = allNotes.filter((n) => Math.floor(n.step / 4) === b);
+                        const isBeamed = notesInBeat.length >= 2;
 
                         // Isolated flags: only if note is NOT beamed
                         // Dotted quarter notes (span === 6 or longer) and downbeat quarter notes have 0 flags!
                         // Dotted 8th notes (span === 3) and 8th notes have 1 flag.
                         // 16th notes have 2 flags.
-                        const isDottedQuarterOrLonger = span >= 6 || (stepIdx % 4 === 0 && span >= 4);
-                        const is8thNote = !isBeamed && !isDottedQuarterOrLonger && (span === 3 || stepIdx % 4 === 2);
-                        const is16thNote = !isBeamed && !isDottedQuarterOrLonger && span !== 3 && stepIdx % 2 === 1;
+                        const isDottedQuarterOrLonger = note.span >= 6 || (note.step % 4 === 0 && note.span >= 4);
+                        const is8thNote = !isBeamed && !isDottedQuarterOrLonger && (note.span === 3 || note.step % 4 === 2);
+                        const is16thNote = !isBeamed && !isDottedQuarterOrLonger && note.span !== 3 && note.step % 2 === 1;
 
-                        // Tie curve (end of measure curves over barline)
-                        const isAnticipationEnd = stepIdx >= 14;
-                        const tieEndX = isAnticipationEnd ? barX + BAR_WIDTH + 14 : stepX + 22;
-                        const tieMidX = (stepX + 6 + tieEndX) / 2;
-                        const tieMidY = isAnticipationEnd ? noteY + 6 : noteY + 4;
+                        // Tie curves:
+                        // 1. Intra-measure beat-crossing tie (connects to next note in allNotes)
+                        // 2. Barline anticipation tie (step 14 or 15 with tie curving into next measure)
+                        let tieCurve: React.ReactNode = null;
+                        if (note.isTiedToNext) {
+                          const isAnticipationEnd = note.step >= 14;
+                          if (isAnticipationEnd) {
+                            const tieEndX = barX + BAR_WIDTH + 14;
+                            const tieMidX = (stepX + 6 + tieEndX) / 2;
+                            const tieMidY = noteY + 6;
+                            tieCurve = (
+                              <path
+                                d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
+                                fill="none"
+                                stroke="#38bdf8"
+                                strokeWidth="1.8"
+                              />
+                            );
+                          } else {
+                            const nextNote = allNotes[nIdx + 1];
+                            if (nextNote) {
+                              const destX = getStepX(nextNote.step);
+                              const tieMidX = (stepX + 6 + destX - 4) / 2;
+                              const tieMidY = noteY + 7;
+                              tieCurve = (
+                                <path
+                                  d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${destX - 2} ${noteY - 4}`}
+                                  fill="none"
+                                  stroke="#38bdf8"
+                                  strokeWidth="1.8"
+                                />
+                              );
+                            }
+                          }
+                        }
 
                         return (
-                          <g key={stepIdx}>
+                          <g key={`note-${note.step}-${nIdx}`}>
                             {/* Slash Notehead */}
                             <line
                               x1={stepX - 5}
@@ -553,7 +641,7 @@ function renderSystem(
                             />
 
                             {/* Augmentation Dot (付点) in 3rd staff space */}
-                            {isDotted && (
+                            {note.isDotted && (
                               <circle
                                 cx={stepX + 11}
                                 cy={noteY - 4.5}
@@ -592,14 +680,7 @@ function renderSystem(
                             )}
 
                             {/* Tie curve if tied */}
-                            {isTied && (
-                              <path
-                                d={`M ${stepX + 6} ${noteY - 4} Q ${tieMidX} ${tieMidY} ${tieEndX} ${noteY - 4}`}
-                                fill="none"
-                                stroke="#38bdf8"
-                                strokeWidth="1.8"
-                              />
-                            )}
+                            {tieCurve}
                           </g>
                         );
                       })}
