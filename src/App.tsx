@@ -16,7 +16,7 @@ import type { MasterChart } from './types/chart';
 import { audioPlayer } from './utils/audio';
 import { downloadMusicXML } from './utils/musicxml';
 import { downloadAdvancedMusicXML } from './utils/musicxmlAdvanced';
-import { Copy, Check, Sparkles, FileText, Download, Layers, Music2 } from 'lucide-react';
+import { Copy, Check, Sparkles, FileText, Download, Layers, Music2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 const SOP_DEFAULT_DSL = `[INTRO] (vocal in)
 |: E♭m7 | C♭ | A♭m7 | B♭7 :|
@@ -57,6 +57,17 @@ export function App() {
   const [editingKickMeasureId, setEditingKickMeasureId] = useState<string | null>(null);
   const [chartCopied, setChartCopied] = useState(false);
   const [nlFeedback, setNlFeedback] = useState<string | null>(null);
+  const [isDslHidden, setIsDslHidden] = useState<boolean>(() => {
+    return localStorage.getItem('textToChord_dsl_hidden') === 'true';
+  });
+
+  const toggleDslHidden = () => {
+    setIsDslHidden((prev) => {
+      const next = !prev;
+      localStorage.setItem('textToChord_dsl_hidden', String(next));
+      return next;
+    });
+  };
 
   // LLM State
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('textToChord_gemini_api_key') || '');
@@ -120,6 +131,10 @@ export function App() {
 
   // Insert DSL tag in Workbench
   const handleInsertDslTag = (tag: string) => {
+    if (isDslHidden) {
+      setIsDslHidden(false);
+      localStorage.setItem('textToChord_dsl_hidden', 'false');
+    }
     if (!dslTextareaRef.current) {
       setChartDsl((prev) => prev + '\n' + tag);
       return;
@@ -212,7 +227,7 @@ export function App() {
       />
 
       {/* Mode Switcher Tabs */}
-      <div style={{ padding: '0 1.5rem', maxWidth: '1400px', margin: '0 auto', width: '100%', marginBottom: '1rem' }}>
+      <div style={{ padding: '0 1.5rem', maxWidth: isDslHidden ? '1600px' : '1400px', margin: '0 auto', width: '100%', marginBottom: '1rem', transition: 'max-width 0.25s ease' }}>
         <div style={{ display: 'flex', gap: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
           <button
             onClick={() => setActiveTab('workbench')}
@@ -231,7 +246,7 @@ export function App() {
         </div>
       </div>
 
-      <main style={{ flex: 1, padding: '0 1.5rem 2rem 1.5rem', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
+      <main style={{ flex: 1, padding: '0 1.5rem 2rem 1.5rem', maxWidth: isDslHidden ? '1600px' : '1400px', margin: '0 auto', width: '100%', transition: 'max-width 0.25s ease' }}>
         {activeTab === 'workbench' ? (
           /* ============================================================ */
           /* WORKBENCH MODE (SOP MASTER RHYTHM CHART)                      */
@@ -255,7 +270,16 @@ export function App() {
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                <button
+                  onClick={toggleDslHidden}
+                  className={isDslHidden ? 'btn btn-primary' : 'btn btn-secondary'}
+                  style={{ fontSize: '0.85rem' }}
+                  title={isDslHidden ? 'DSLテキストエディタを表示' : 'DSLテキストエディタを隠して譜面を全幅表示'}
+                >
+                  {isDslHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                  {isDslHidden ? 'DSLを表示' : 'DSLを隠す'}
+                </button>
                 <button
                   onClick={() => downloadAdvancedMusicXML(masterChart)}
                   className="btn btn-accent"
@@ -276,44 +300,76 @@ export function App() {
             </div>
 
             {/* Split View: Left Input DSL / Right Spread View */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 380px) 1fr', gap: '1.5rem', alignItems: 'start' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isDslHidden ? '1fr' : 'minmax(300px, 380px) 1fr',
+                gap: '1.5rem',
+                alignItems: 'start',
+                transition: 'all 0.25s ease',
+              }}
+            >
               {/* Left Column: Text DSL Editor */}
-              <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-                  <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <FileText size={16} color="var(--accent-cyan)" /> リズム譜 DSLテキスト
-                  </label>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    |: 反復 | [1.] [2.] 1・2番
-                  </span>
-                </div>
+              {!isDslHidden && (
+                <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <FileText size={16} color="var(--accent-cyan)" /> リズム譜 DSLテキスト
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        |: 反復 | [1.] [2.] 1・2番
+                      </span>
+                      <button
+                        onClick={toggleDslHidden}
+                        style={{
+                          padding: '0.2rem 0.4rem',
+                          color: 'var(--text-muted)',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                          fontSize: '0.72rem',
+                          transition: 'all 0.15s ease',
+                        }}
+                        title="DSLエディタを隠す"
+                      >
+                        <PanelLeftClose size={13} />
+                        <span>隠す</span>
+                      </button>
+                    </div>
+                  </div>
 
-                <textarea
-                  ref={dslTextareaRef}
-                  value={chartDsl}
-                  onChange={(e) => setChartDsl(e.target.value)}
-                  placeholder="コード・セクション・リピート記号を入力..."
-                  rows={18}
-                  style={{
-                    width: '100%',
-                    background: 'rgba(0, 0, 0, 0.35)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    padding: '0.8rem',
-                    color: '#e2e8f0',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.6,
-                    resize: 'vertical',
-                    outline: 'none',
-                  }}
-                />
+                  <textarea
+                    ref={dslTextareaRef}
+                    value={chartDsl}
+                    onChange={(e) => setChartDsl(e.target.value)}
+                    placeholder="コード・セクション・リピート記号を入力..."
+                    rows={18}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px',
+                      padding: '0.8rem',
+                      color: '#e2e8f0',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.9rem',
+                      lineHeight: 1.6,
+                      resize: 'vertical',
+                      outline: 'none',
+                    }}
+                  />
 
-                <div style={{ marginTop: '0.8rem', fontSize: '0.75rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                  💡 簡易変換モードの <code>| Fm7 | G7 |</code> を貼り付け可能。<br />
-                  💡 譜面の小節をダブルクリックすると16ステップキメ編集が開きます。
+                  <div style={{ marginTop: '0.8rem', fontSize: '0.75rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                    💡 簡易変換モードの <code>| Fm7 | G7 |</code> を貼り付け可能。<br />
+                    💡 譜面の小節をダブルクリックすると16ステップキメ編集が開きます。
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Right Column: Master Rhythm Chart Spread View & AI Copilot */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
