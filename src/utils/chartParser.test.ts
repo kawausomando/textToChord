@@ -98,6 +98,20 @@ function testParser() {
   } else {
     console.error('[FAIL] M11 simile mismatch', m11.simile);
   }
+
+  // 3. Test Metadata Headers (Key, BPM, 拍子)
+  const metaDsl = `Key: G
+BPM: 140
+Time: 3/4
+[INTRO]
+| G | C | D7 | G |`;
+
+  const metaChart = parseMasterChartText(metaDsl);
+  if (metaChart.keySignature === 'G' && metaChart.bpm === 140 && metaChart.timeSignature[0] === 3 && metaChart.timeSignature[1] === 4) {
+    console.log('[PASS] Parsed Key=G, BPM=140, Time=3/4 correctly from DSL');
+  } else {
+    console.error('[FAIL] Metadata mismatch', metaChart.keySignature, metaChart.bpm, metaChart.timeSignature);
+  }
 }
 
 testParser();

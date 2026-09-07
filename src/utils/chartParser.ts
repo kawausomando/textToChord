@@ -111,9 +111,94 @@ function extractBarsFromLine(line: string): { text: string; leftDelim: string; r
 }
 
 /**
+ * Extracts metadata (Key, BPM, Time Signature) from chart DSL headers.
+ */
+export function extractMetadataFromDsl(input: string): {
+  key?: string;
+  bpm?: number;
+  timeSignature?: [number, number];
+} {
+  const result: { key?: string; bpm?: number; timeSignature?: [number, number] } = {};
+  const lines = input.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
+
+    const keyMatch = trimmed.match(/^(?:key|キー)\s*[:：]\s*(.+)$/i);
+    if (keyMatch) {
+      result.key = keyMatch[1].trim();
+      continue;
+    }
+
+    const bpmMatch = trimmed.match(/^bpm\s*[:：]\s*(\d+)$/i);
+    if (bpmMatch) {
+      result.bpm = parseInt(bpmMatch[1], 10);
+      continue;
+    }
+
+    const timeMatch = trimmed.match(/^(?:time|timesignature|meter|拍子)\s*[:：]\s*(\d+)\s*[/／]\s*(\d+)$/i);
+    if (timeMatch) {
+      result.timeSignature = [parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10)];
+      continue;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Updates or adds Key, BPM, and Time Signature headers in the DSL string.
+ */
+export function updateMetadataInDsl(
+  dsl: string,
+  updates: { key?: string; bpm?: number; timeSignature?: [number, number] }
+): string {
+  const lines = dsl.split('\n');
+
+  if (updates.key !== undefined) {
+    const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
+    if (keyIdx !== -1) {
+      lines[keyIdx] = `Key: ${updates.key}`;
+    } else {
+      lines.unshift(`Key: ${updates.key}`);
+    }
+  }
+
+  if (updates.bpm !== undefined) {
+    const bpmIdx = lines.findIndex((l) => /^bpm\s*[:：]/i.test(l.trim()));
+    if (bpmIdx !== -1) {
+      lines[bpmIdx] = `BPM: ${updates.bpm}`;
+    } else {
+      const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
+      lines.splice(keyIdx !== -1 ? keyIdx + 1 : 0, 0, `BPM: ${updates.bpm}`);
+    }
+  }
+
+  if (updates.timeSignature !== undefined) {
+    const timeIdx = lines.findIndex((l) => /^(?:time|timesignature|meter|拍子)\s*[:：]/i.test(l.trim()));
+    const timeStr = `Time: ${updates.timeSignature[0]}/${updates.timeSignature[1]}`;
+    if (timeIdx !== -1) {
+      lines[timeIdx] = timeStr;
+    } else {
+      const bpmIdx = lines.findIndex((l) => /^bpm\s*[:：]/i.test(l.trim()));
+      const keyIdx = lines.findIndex((l) => /^(?:key|キー)\s*[:：]/i.test(l.trim()));
+      const insertIdx = bpmIdx !== -1 ? bpmIdx + 1 : keyIdx !== -1 ? keyIdx + 1 : 0;
+      lines.splice(insertIdx, 0, timeStr);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Parses Master Rhythm Chart DSL into a structured MasterChart AST.
  */
-export function parseMasterChartText(input: string, chartTitle = 'Lead Sheet'): MasterChart {
+export function parseMasterChartText(
+  input: string,
+  chartTitle = 'Lead Sheet',
+  defaults?: { bpm?: number; keySignature?: string; timeSignature?: [number, number] }
+): MasterChart {
   const measures: Measure[] = [];
   let currentMeasureNum = 1;
 
@@ -122,11 +207,34 @@ export function parseMasterChartText(input: string, chartTitle = 'Lead Sheet'): 
   let pendingSegno = false;
   let pendingPageBreak = false;
 
+  let parsedKey = defaults?.keySignature;
+  let parsedBpm = defaults?.bpm;
+  let parsedTimeSig = defaults?.timeSignature;
+
   const lines = input.split('\n');
 
   for (let lIdx = 0; lIdx < lines.length; lIdx++) {
     const rawLine = lines[lIdx].trim();
     if (!rawLine || rawLine.startsWith('//') || rawLine.startsWith('#')) {
+      continue;
+    }
+
+    // Key / BPM / Time headers
+    const keyMatch = rawLine.match(/^(?:key|キー)\s*[:：]\s*(.+)$/i);
+    if (keyMatch) {
+      parsedKey = keyMatch[1].trim();
+      continue;
+    }
+
+    const bpmMatch = rawLine.match(/^bpm\s*[:：]\s*(\d+)$/i);
+    if (bpmMatch) {
+      parsedBpm = parseInt(bpmMatch[1], 10);
+      continue;
+    }
+
+    const timeMatch = rawLine.match(/^(?:time|timesignature|meter|拍子)\s*[:：]\s*(\d+)\s*[/／]\s*(\d+)$/i);
+    if (timeMatch) {
+      parsedTimeSig = [parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10)];
       continue;
     }
 
@@ -298,9 +406,9 @@ export function parseMasterChartText(input: string, chartTitle = 'Lead Sheet'): 
 
   return {
     title: chartTitle,
-    bpm: 125,
-    keySignature: 'E♭m',
-    timeSignature: [4, 4],
+    bpm: parsedBpm ?? 125,
+    keySignature: parsedKey ?? 'E♭m',
+    timeSignature: parsedTimeSig ?? [4, 4],
     measures,
   };
 }

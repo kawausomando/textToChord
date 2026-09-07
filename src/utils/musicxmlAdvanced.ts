@@ -66,6 +66,29 @@ function parseChordHarmonyXml(symbol: string): string {
       </harmony>\n`;
 }
 
+function parseKeySignatureToFifths(keyStr: string): { fifths: number; mode: 'major' | 'minor' } {
+  const clean = (keyStr || 'C').trim().replace(/♭/g, 'b').replace(/♯/g, '#');
+  const isMinor = /m(?!aj)/i.test(clean);
+  const root = clean.replace(/m.*/i, '').trim();
+
+  const majorFifths: Record<string, number> = {
+    'C': 0, 'G': 1, 'D': 2, 'A': 3, 'E': 4, 'B': 5, 'F#': 6, 'C#': 7,
+    'F': -1, 'Bb': -2, 'Eb': -3, 'Ab': -4, 'Db': -5, 'Gb': -6, 'Cb': -7,
+  };
+  const minorFifths: Record<string, number> = {
+    'A': 0, 'E': 1, 'B': 2, 'F#': 3, 'C#': 4, 'G#': 5, 'D#': 6, 'A#': 7,
+    'D': -1, 'G': -2, 'C': -3, 'F': -4, 'Bb': -5, 'Eb': -6, 'Ab': -7,
+  };
+
+  if (isMinor) {
+    const fifths = minorFifths[root] ?? -6;
+    return { fifths, mode: 'minor' };
+  } else {
+    const fifths = majorFifths[root] ?? 0;
+    return { fifths, mode: 'major' };
+  }
+}
+
 /**
  * Generates Sibelius & Dorico optimized MusicXML 4.0 file
  * strictly adhering to SOP:
@@ -113,15 +136,19 @@ export function generateAdvancedMusicXML(chart: MasterChart): string {
 
     // Attributes in Measure 1
     if (idx === 0) {
+      const keyInfo = parseKeySignatureToFifths(chart.keySignature);
+      const beats = chart.timeSignature ? chart.timeSignature[0] : 4;
+      const beatType = chart.timeSignature ? chart.timeSignature[1] : 4;
+
       xmlBody += `      <attributes>
         <divisions>${divisions}</divisions>
         <key>
-          <fifths>-6</fifths>
-          <mode>minor</mode>
+          <fifths>${keyInfo.fifths}</fifths>
+          <mode>${keyInfo.mode}</mode>
         </key>
         <time>
-          <beats>4</beats>
-          <beat-type>4</beat-type>
+          <beats>${beats}</beats>
+          <beat-type>${beatType}</beat-type>
         </time>
         <clef>
           <sign>G</sign>
@@ -130,7 +157,16 @@ export function generateAdvancedMusicXML(chart: MasterChart): string {
         <staff-details>
           <staff-lines>5</staff-lines>
         </staff-details>
-      </attributes>\n`;
+      </attributes>
+      <direction placement="above">
+        <direction-type>
+          <metronome>
+            <beat-unit>quarter</beat-unit>
+            <per-minute>${chart.bpm || 125}</per-minute>
+          </metronome>
+        </direction-type>
+        <sound tempo="${chart.bpm || 125}"/>
+      </direction>\n`;
     }
 
     // Left Barline (e.g. Start Repeat)

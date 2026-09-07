@@ -81,7 +81,7 @@ export const MasterChartSpreadView: React.FC<MasterChartSpreadViewProps> = ({
             </div>
             <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
               <div>Key: <strong style={{ color: 'var(--accent-amber)' }}>{chart.keySignature}</strong></div>
-              <div>BPM: <strong style={{ color: '#fff' }}>{chart.bpm}</strong> • 4/4</div>
+              <div>BPM: <strong style={{ color: '#fff' }}>{chart.bpm}</strong> • {chart.timeSignature ? `${chart.timeSignature[0]}/${chart.timeSignature[1]}` : '4/4'}</div>
             </div>
           </div>
 

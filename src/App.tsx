@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
 import { VisualLeadSheet } from './components/VisualLeadSheet';
@@ -9,7 +9,7 @@ import { NaturalLanguageBar } from './components/NaturalLanguageBar';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { convertRoughText, DEFAULT_OPTIONS } from './utils/converter';
 import type { ConverterOptions } from './utils/converter';
-import { parseMasterChartText, updateMeasureKickInDsl } from './utils/chartParser';
+import { parseMasterChartText, updateMeasureKickInDsl, extractMetadataFromDsl, updateMetadataInDsl } from './utils/chartParser';
 import { processNaturalLanguageCommand } from './utils/aiCommandProcessor';
 import { executeLlmChartCommand } from './utils/llmService';
 import type { MasterChart } from './types/chart';
@@ -18,7 +18,22 @@ import { downloadMusicXML } from './utils/musicxml';
 import { downloadAdvancedMusicXML } from './utils/musicxmlAdvanced';
 import { Copy, Check, Sparkles, FileText, Download, Layers, Music2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
-const SOP_DEFAULT_DSL = `[INTRO] (vocal in)
+const COMMON_KEYS = [
+  'C', 'G', 'D', 'A', 'E', 'B', 'F♯',
+  'F', 'B♭', 'E♭', 'A♭', 'D♭', 'G♭',
+  'Am', 'Em', 'Bm', 'F♯m', 'C♯m', 'G♯m', 'D♯m',
+  'Dm', 'Gm', 'Cm', 'Fm', 'B♭m', 'E♭m',
+];
+
+const COMMON_TIME_SIGNATURES = [
+  '4/4', '3/4', '2/4', '6/8', '12/8', '5/4', '7/8'
+];
+
+const SOP_DEFAULT_DSL = `Key: E♭m
+BPM: 125
+Time: 4/4
+
+[INTRO] (vocal in)
 |: E♭m7 | C♭ | A♭m7 | B♭7 :|
 
 [A] $Segno
@@ -49,7 +64,14 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeBarIndex, setActiveBarIndex] = useState<number>(-1);
-  const [bpm, setBpm] = useState<number>(125);
+
+  // Metadata State (Key, BPM, 拍子)
+  const initialMeta = useMemo(() => extractMetadataFromDsl(SOP_DEFAULT_DSL), []);
+  const [keySignature, setKeySignature] = useState<string>(initialMeta.key || 'E♭m');
+  const [bpm, setBpm] = useState<number>(initialMeta.bpm || 125);
+  const [timeSignature, setTimeSignature] = useState<string>(
+    initialMeta.timeSignature ? `${initialMeta.timeSignature[0]}/${initialMeta.timeSignature[1]}` : '4/4'
+  );
 
   // Workbench State
   const [chartDsl, setChartDsl] = useState<string>(SOP_DEFAULT_DSL);
@@ -67,6 +89,41 @@ export function App() {
       localStorage.setItem('textToChord_dsl_hidden', String(next));
       return next;
     });
+  };
+
+  // Two-way sync: Update metadata states when chartDsl headers change
+  useEffect(() => {
+    const meta = extractMetadataFromDsl(chartDsl);
+    if (meta.key !== undefined) {
+      setKeySignature((prev) => (prev !== meta.key ? meta.key! : prev));
+    }
+    if (meta.bpm !== undefined) {
+      setBpm((prev) => (prev !== meta.bpm ? meta.bpm! : prev));
+    }
+    if (meta.timeSignature !== undefined) {
+      const tsStr = `${meta.timeSignature[0]}/${meta.timeSignature[1]}`;
+      setTimeSignature((prev) => (prev !== tsStr ? tsStr : prev));
+    }
+  }, [chartDsl]);
+
+  // Two-way sync handlers: update state and DSL text
+  const handleUpdateKey = (newKey: string) => {
+    setKeySignature(newKey);
+    setChartDsl((prev) => updateMetadataInDsl(prev, { key: newKey }));
+  };
+
+  const handleUpdateBpm = (newBpm: number) => {
+    const clamped = Math.max(30, Math.min(300, isNaN(newBpm) ? 120 : newBpm));
+    setBpm(clamped);
+    setChartDsl((prev) => updateMetadataInDsl(prev, { bpm: clamped }));
+  };
+
+  const handleUpdateTimeSignature = (newTs: string) => {
+    setTimeSignature(newTs);
+    const parts = newTs.split('/');
+    const beats = parseInt(parts[0], 10) || 4;
+    const beatType = parseInt(parts[1], 10) || 4;
+    setChartDsl((prev) => updateMetadataInDsl(prev, { timeSignature: [beats, beatType] }));
   };
 
   // LLM State
@@ -100,8 +157,15 @@ export function App() {
 
   // Live Master Chart AST (workbench mode)
   const masterChart: MasterChart = useMemo(() => {
-    return parseMasterChartText(chartDsl, 'MASTER RHYTHM LEAD SHEET');
-  }, [chartDsl]);
+    const parts = timeSignature.split('/');
+    const beats = parseInt(parts[0], 10) || 4;
+    const beatType = parseInt(parts[1], 10) || 4;
+    return parseMasterChartText(chartDsl, 'MASTER RHYTHM LEAD SHEET', {
+      keySignature,
+      bpm,
+      timeSignature: [beats, beatType],
+    });
+  }, [chartDsl, keySignature, bpm, timeSignature]);
 
   const editingKickMeasure = useMemo(() => {
     if (!editingKickMeasureId) return null;
@@ -223,7 +287,7 @@ export function App() {
         onTogglePlay={handleTogglePlay}
         onOpenSettings={() => setIsSettingsOpen(true)}
         bpm={bpm}
-        setBpm={setBpm}
+        setBpm={handleUpdateBpm}
       />
 
       {/* Mode Switcher Tabs */}
@@ -253,10 +317,124 @@ export function App() {
           /* ============================================================ */
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Workbench DSL Toolbar & Controls */}
-            <div className="glass-panel" style={{ padding: '1rem 1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
-              {/* Quick Tag Insert Buttons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>挿入:</span>
+            <div className="glass-panel" style={{ padding: '1rem 1.2rem', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              {/* Row 1: Song Metadata Controls (Key, BPM, 拍子) & Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.8rem' }}>
+                {/* Metadata Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  {/* Key */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Key:</span>
+                    <input
+                      list="common-keys-list"
+                      value={keySignature}
+                      onChange={(e) => handleUpdateKey(e.target.value)}
+                      placeholder="E♭m"
+                      style={{
+                        width: '76px',
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '0.25rem 0.5rem',
+                        color: '#38bdf8',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        outline: 'none',
+                      }}
+                      title="曲のキー (調性)。例: C, Am, E♭m, F♯"
+                    />
+                    <datalist id="common-keys-list">
+                      {COMMON_KEYS.map((k) => (
+                        <option key={k} value={k} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  {/* BPM */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>BPM:</span>
+                    <input
+                      type="number"
+                      min={30}
+                      max={300}
+                      value={bpm}
+                      onChange={(e) => handleUpdateBpm(Number(e.target.value))}
+                      style={{
+                        width: '68px',
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '0.25rem 0.5rem',
+                        color: '#a78bfa',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        outline: 'none',
+                      }}
+                      title="テンポ (30〜300)"
+                    />
+                  </div>
+
+                  {/* 拍子 (Time Signature) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>拍子:</span>
+                    <select
+                      value={timeSignature}
+                      onChange={(e) => handleUpdateTimeSignature(e.target.value)}
+                      style={{
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '6px',
+                        padding: '0.25rem 0.5rem',
+                        color: '#34d399',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        outline: 'none',
+                        cursor: 'pointer',
+                      }}
+                      title="拍子記号 (Time Signature)"
+                    >
+                      {COMMON_TIME_SIGNATURES.map((ts) => (
+                        <option key={ts} value={ts} style={{ background: '#1e293b', color: '#fff' }}>
+                          {ts}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <button
+                    onClick={toggleDslHidden}
+                    className={isDslHidden ? 'btn btn-primary' : 'btn btn-secondary'}
+                    style={{ fontSize: '0.85rem' }}
+                    title={isDslHidden ? 'DSLテキストエディタを表示' : 'DSLテキストエディタを隠して譜面を全幅表示'}
+                  >
+                    {isDslHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                    {isDslHidden ? 'DSLを表示' : 'DSLを隠す'}
+                  </button>
+                  <button
+                    onClick={() => downloadAdvancedMusicXML(masterChart)}
+                    className="btn btn-accent"
+                    style={{ fontSize: '0.85rem' }}
+                    title="Sibelius段頭115pt余白・実質228pt均等化・スラッシュキメ対応MusicXML"
+                  >
+                    <Download size={16} /> Sibelius用 MusicXML出力
+                  </button>
+                  <button
+                    onClick={handleCopyDsl}
+                    className={chartCopied ? 'btn btn-accent' : 'btn btn-secondary'}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    {chartCopied ? <Check size={16} /> : <Copy size={16} />}
+                    {chartCopied ? 'コピー完了' : 'DSLテキストをコピー'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 2: Quick Tag Insert Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', borderTop: '1px solid rgba(255, 255, 255, 0.06)', paddingTop: '0.6rem' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>記号挿入:</span>
                 {['[INTRO]', '[A]', '[B]', '[CHORUS]', '[CODA]', '|:', ':|', '||', '[1.]', '[2.]', '%', '$Segno', '$ToCoda', '$DSalCoda', '[PAGE_BREAK]'].map((tag) => (
                   <button
                     key={tag}
@@ -267,35 +445,6 @@ export function App() {
                     {tag}
                   </button>
                 ))}
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-                <button
-                  onClick={toggleDslHidden}
-                  className={isDslHidden ? 'btn btn-primary' : 'btn btn-secondary'}
-                  style={{ fontSize: '0.85rem' }}
-                  title={isDslHidden ? 'DSLテキストエディタを表示' : 'DSLテキストエディタを隠して譜面を全幅表示'}
-                >
-                  {isDslHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-                  {isDslHidden ? 'DSLを表示' : 'DSLを隠す'}
-                </button>
-                <button
-                  onClick={() => downloadAdvancedMusicXML(masterChart)}
-                  className="btn btn-accent"
-                  style={{ fontSize: '0.85rem' }}
-                  title="Sibelius段頭115pt余白・実質228pt均等化・スラッシュキメ対応MusicXML"
-                >
-                  <Download size={16} /> Sibelius用 MusicXML出力
-                </button>
-                <button
-                  onClick={handleCopyDsl}
-                  className={chartCopied ? 'btn btn-accent' : 'btn btn-secondary'}
-                  style={{ fontSize: '0.85rem' }}
-                >
-                  {chartCopied ? <Check size={16} /> : <Copy size={16} />}
-                  {chartCopied ? 'コピー完了' : 'DSLテキストをコピー'}
-                </button>
               </div>
             </div>
 

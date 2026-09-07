@@ -1,5 +1,5 @@
 import { processNaturalLanguageCommand } from './aiCommandProcessor';
-import { parseMasterChartText } from './chartParser';
+import { parseMasterChartText, updateMetadataInDsl } from './chartParser';
 
 function runTests() {
   console.log('--- Testing Natural Language AI Command Processor ---');
@@ -279,6 +279,22 @@ function runTests() {
   assert(
     'Chord replace A11: "2小節目のコードをA11に変えて" successfully replaced chord with A11 without kick false-positive',
     res21.success && res21.newDsl.includes('A11') && !res21.newDsl.includes('[kick:')
+  );
+
+  // Test 22: Metadata headers parsing (Key, BPM, 拍子)
+  const metaDsl = `Key: G\nBPM: 140\nTime: 3/4\n[INTRO]\n| G | C | D7 | G |`;
+  const metaChart = parseMasterChartText(metaDsl);
+  assert(
+    'Metadata headers: parses Key=G, BPM=140, Time=3/4 correctly',
+    metaChart.keySignature === 'G' && metaChart.bpm === 140 && metaChart.timeSignature[0] === 3 && metaChart.timeSignature[1] === 4
+  );
+
+  // Test 23: updateMetadataInDsl closed-loop reactivity
+  const updatedDsl = updateMetadataInDsl(metaDsl, { key: 'F♯m', bpm: 96, timeSignature: [6, 8] });
+  const reParsed = parseMasterChartText(updatedDsl);
+  assert(
+    'updateMetadataInDsl: updates Key to F♯m, BPM to 96, Time to 6/8',
+    reParsed.keySignature === 'F♯m' && reParsed.bpm === 96 && reParsed.timeSignature[0] === 6 && reParsed.timeSignature[1] === 8
   );
 
   console.log(`\nTests completed: ${passCount} / ${totalTests} passed.`);
